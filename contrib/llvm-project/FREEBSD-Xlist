@@ -1,4 +1,4 @@
-.arcconfig
+7.arcconfig
 .arclint
 .clang-format
 .clang-tidy
@@ -348,6 +348,7 @@ lldb/source/Plugins/Disassembler/CMakeLists.txt
 lldb/source/Plugins/Disassembler/LLVMC/CMakeLists.txt
 lldb/source/Plugins/DynamicLoader/CMakeLists.txt
 lldb/source/Plugins/DynamicLoader/Darwin-Kernel/
+lldb/source/Plugins/DynamicLoader/FreeBSD-Kernel/CMakeLists.txt
 lldb/source/Plugins/DynamicLoader/Hexagon-DYLD/CMakeLists.txt
 lldb/source/Plugins/DynamicLoader/MacOSX-DYLD/
 lldb/source/Plugins/DynamicLoader/POSIX-DYLD/CMakeLists.txt

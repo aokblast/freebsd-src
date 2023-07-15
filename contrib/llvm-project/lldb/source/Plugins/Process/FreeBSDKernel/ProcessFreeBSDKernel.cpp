@@ -9,8 +9,9 @@
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Target/DynamicLoader.h"
+#include "lldb/Utility/LLDBLog.h"
 
-#include "Plugins/DynamicLoader/Static/DynamicLoaderStatic.h"
+#include "Plugins/DynamicLoader/FreeBSD-Kernel/DynamicLoaderFreeBSDKernel.h"
 #include "ProcessFreeBSDKernel.h"
 #include "ThreadFreeBSDKernel.h"
 
@@ -74,6 +75,10 @@ lldb::ProcessSP ProcessFreeBSDKernel::CreateInstance(lldb::TargetSP target_sp,
                                                      ListenerSP listener_sp,
                                                      const FileSpec *crash_file,
                                                      bool can_connect) {
+    Log *log = GetLog(LLDBLog::Process);
+    LLDB_LOGF(log,
+              "ProcessFreeBSDKernel::Create Instance:"
+        "Try to create Instance");
   ModuleSP executable = target_sp->GetExecutableModule();
   if (crash_file && !can_connect && executable) {
 #if LLDB_ENABLE_FBSDVMCORE
@@ -94,6 +99,10 @@ lldb::ProcessSP ProcessFreeBSDKernel::CreateInstance(lldb::TargetSP target_sp,
                                                        kvm);
 #endif
   }
+    LLDB_LOGF(log,
+              "ProcessFreeBSDKernel::Create Instance:"
+        "Create Instance failed");
+
   return nullptr;
 }
 
@@ -261,13 +270,16 @@ bool ProcessFreeBSDKernel::DoUpdateThreadList(ThreadList &old_thread_list,
 
 Status ProcessFreeBSDKernel::DoLoadCore() {
   // The core is already loaded by CreateInstance().
+  DynamicLoader *dyld = GetDynamicLoader();
+  if (dyld)
+      dyld->DidLaunch();
   return Status();
 }
 
 DynamicLoader *ProcessFreeBSDKernel::GetDynamicLoader() {
   if (m_dyld_up.get() == nullptr)
     m_dyld_up.reset(DynamicLoader::FindPlugin(
-        this, DynamicLoaderStatic::GetPluginNameStatic()));
+        this, DynamicLoaderFreeBSDKernel::GetPluginNameStatic()));
   return m_dyld_up.get();
 }
 
