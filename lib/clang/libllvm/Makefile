@@ -177,6 +177,7 @@ SRCS_MIN+=	BinaryFormat/MsgPackDocumentYAML.cpp
 SRCS_MIN+=	BinaryFormat/MsgPackReader.cpp
 SRCS_MIN+=	BinaryFormat/MsgPackWriter.cpp
 SRCS_MIN+=	BinaryFormat/Wasm.cpp
+SRCS_MIN+=	BinaryFormat/ELF.cpp
 SRCS_MIN+=	BinaryFormat/XCOFF.cpp
 SRCS_MIN+=	Bitcode/Reader/BitReader.cpp
 SRCS_EXT+=	Bitcode/Reader/BitcodeAnalyzer.cpp

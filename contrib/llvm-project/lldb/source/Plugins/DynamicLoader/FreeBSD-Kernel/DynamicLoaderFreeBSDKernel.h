@@ -55,7 +55,8 @@ public:
 protected:
     class KModImageInfo {
     public:
-        KModImageInfo() : m_module_sp(), m_memory_module_sp(), m_uuid(), m_name() {}
+        KModImageInfo() : m_module_sp(), m_memory_module_sp(), m_uuid(), m_name(), m_path() {}
+      
         void Clear() {
             m_load_address = LLDB_INVALID_ADDRESS;
             m_name.clear();
@@ -63,11 +64,12 @@ protected:
             m_module_sp.reset();
             m_memory_module_sp.reset();
             m_stop_id = UINT32_MAX;
+	    m_path.clear();
         }
 
         void SetLoadAddress(lldb::addr_t load_address) { m_load_address = load_address; }
 
-        lldb::addr_t GetLoadAddress() const;
+        lldb::addr_t GetLoadAddress() const { return m_load_address; }
 
         void SetUUID(const lldb_private::UUID uuid) { m_uuid = uuid; }
 
@@ -76,6 +78,10 @@ protected:
         void SetName(const char *name) { m_name = name; }
 
         std::string GetName() const { return m_name; }
+
+        void SetPath(const char *path) { m_path = path; }
+      
+        std::string GetPath() const { return m_path; }
 
         void SetModule(lldb::ModuleSP module) { m_module_sp = module; }
 
@@ -105,6 +111,7 @@ protected:
         lldb_private::UUID m_uuid;
         bool m_is_kernel = false;
         std::string m_name;
+        std::string m_path;
         uint32_t m_stop_id = UINT32_MAX;
     };
 
@@ -142,6 +149,7 @@ protected:
     KModImageInfo m_kernel_image_info;
     KModImageInfo::collection_type m_linker_files_list;
     std::recursive_mutex m_mutex;
+    std::unordered_map<std::string, lldb_private::UUID> m_kld_name_to_uuid;
 private:
     DynamicLoaderFreeBSDKernel(const DynamicLoaderFreeBSDKernel &) = delete;
 
