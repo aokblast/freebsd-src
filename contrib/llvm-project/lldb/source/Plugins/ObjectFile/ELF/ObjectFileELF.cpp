@@ -924,13 +924,13 @@ lldb_private::Address ObjectFileELF::GetEntryPointAddress() {
 
 Address ObjectFileELF::GetBaseAddress() {
   if (GetType() == ObjectFile::eTypeObjectFile) {
-      for (SectionHeaderCollIter I = std::next(m_section_headers.begin());
-       I != m_section_headers.end(); ++I) {
-          const ELFSectionHeaderInfo &header = *I;
-	  if (header.sh_flags & SHF_ALLOC)
-	    return Address(GetSectionList()->FindSectionByID(SectionIndex(I)), 0);
-      }
-      return LLDB_INVALID_ADDRESS;
+    for (SectionHeaderCollIter I = std::next(m_section_headers.begin());
+	 I != m_section_headers.end(); ++I) {
+      const ELFSectionHeaderInfo &header = *I;
+      if (header.sh_flags & SHF_ALLOC)
+	return Address(GetSectionList()->FindSectionByID(SectionIndex(I)), 0);
+    }
+    return LLDB_INVALID_ADDRESS;
   }
 
   for (const auto &EnumPHdr : llvm::enumerate(ProgramHeaders())) {
