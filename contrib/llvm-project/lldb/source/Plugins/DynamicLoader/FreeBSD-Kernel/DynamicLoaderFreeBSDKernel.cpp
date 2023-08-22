@@ -413,14 +413,11 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingMemoryModule(lldb_
         }
     }
 
-    // If this file is kernel module, adjust it's text section only
+    // If this file is kernel module, adjust it's section(PT_LOAD segment)
     if (is_kmod(m_module_sp.get())) {
       m_stop_id = process->GetStopID();
-      SectionList *section_list = m_module_sp->GetObjectFile()->GetSectionList();
-      if (section_list == nullptr)
-	return false;
-      SectionSP on_disk_section_sp = section_list->FindSectionByName(ConstString(".text"));
-      target.SetSectionLoadAddress(on_disk_section_sp, m_load_address);
+      bool changed;
+      m_module_sp->SetLoadAddress(target, m_load_address, true, changed);
       return true;
     }
 
@@ -502,11 +499,9 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingMemoryModule(lldb_
                 file_address != LLDB_INVALID_ADDRESS) {
                 s.Printf("Kernel slide 0x%" PRIx64 " in memory.\n",
                          m_load_address - file_address);
-            }
-        }
-        {
-            s.Printf("Loaded kernel file %s\n",
+		s.Printf("Loaded kernel file %s\n",
                      m_module_sp->GetFileSpec().GetPath().c_str());
+            }
         }
         s.Flush();
     }
