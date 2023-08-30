@@ -266,10 +266,11 @@ void DynamicLoaderFreeBSDKernel::DebuggerInit(
 
 DynamicLoaderFreeBSDKernel::DynamicLoaderFreeBSDKernel(Process *process,
                                                        addr_t kernel_address)
-    : DynamicLoader(process), m_process(process), m_mutex(),
-      m_kernel_load_address(kernel_address),
-      m_linker_file_list_struct_addr(LLDB_INVALID_ADDRESS),
-      m_linker_file_head_addr(LLDB_INVALID_ADDRESS) {
+  : DynamicLoader(process), m_process(process),
+    m_linker_file_list_struct_addr(LLDB_INVALID_ADDRESS),
+    m_linker_file_head_addr(LLDB_INVALID_ADDRESS),
+    m_kernel_load_address(kernel_address),
+    m_mutex() {
   process->SetCanRunCode(false);
 }
 
@@ -320,6 +321,7 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::ReadMemoryModule(
 
   bool this_is_kernel = is_kernel(memory_module_sp.get());
 
+  // TODO: figure out why UUID is not same in FreeBSD Kernel dump
   // If the kernel specify what UUID should be found, we should match it
   // if (m_uuid.IsValid() && m_uuid != memory_module_sp->GetUUID()) {
   //     if (log) {
@@ -367,6 +369,7 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingMemoryModule(
     s.Printf("Kernel UUID: %s\n", m_uuid.GetAsString().c_str());
     s.Printf("Load Address: 0x%" PRIx64 "\n", m_load_address);
 
+    // TODO: figure out why UUID is not same in FreeBSD Kernel dump
     // Delete more than one kernel image that accidently add by user
     // ModuleList incorrect_kernels;
     // for (ModuleSP module_sp : target.GetImages().Modules()) {
@@ -547,11 +550,6 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingFileAddress(
 bool DynamicLoaderFreeBSDKernel::ReadKmodsListHeader() {
   std::lock_guard<decltype(m_mutex)> guard(m_mutex);
 
-  // TODO: add support for big endian and x32 machine
-  const uint32_t addr_size = 8;
-  const ByteOrder byte_order = ByteOrder::eByteOrderLittle;
-  const bool force_live_memory = true;
-
   if (m_linker_file_list_struct_addr.IsValid()) {
     // Get tqh_first struct element from linker_files
     Status error;
@@ -624,10 +622,6 @@ bool DynamicLoaderFreeBSDKernel::ParseKmods(Address linker_files_head_addr) {
 bool DynamicLoaderFreeBSDKernel::ReadAllKmods(
     Address linker_files_head_addr,
     KModImageInfo::collection_type &kmods_list) {
-  // TODO: add support for big endian and x32 machine
-  const uint32_t addr_size = 8;
-  const ByteOrder byte_order = ByteOrder::eByteOrderLittle;
-  const bool force_live_memory = true;
 
   // Get offset of next member and load address symbol
   static ConstString kld_off_address_symbol_name("kld_off_address");
