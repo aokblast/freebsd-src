@@ -75,10 +75,6 @@ lldb::ProcessSP ProcessFreeBSDKernel::CreateInstance(lldb::TargetSP target_sp,
                                                      ListenerSP listener_sp,
                                                      const FileSpec *crash_file,
                                                      bool can_connect) {
-    Log *log = GetLog(LLDBLog::Process);
-    LLDB_LOGF(log,
-              "ProcessFreeBSDKernel::Create Instance:"
-        "Try to create Instance");
   ModuleSP executable = target_sp->GetExecutableModule();
   if (crash_file && !can_connect && executable) {
 #if LLDB_ENABLE_FBSDVMCORE
@@ -99,10 +95,6 @@ lldb::ProcessSP ProcessFreeBSDKernel::CreateInstance(lldb::TargetSP target_sp,
                                                        kvm);
 #endif
   }
-    LLDB_LOGF(log,
-              "ProcessFreeBSDKernel::Create Instance:"
-        "Create Instance failed");
-
   return nullptr;
 }
 
