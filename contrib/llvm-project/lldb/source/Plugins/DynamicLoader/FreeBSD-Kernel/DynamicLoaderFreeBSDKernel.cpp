@@ -181,6 +181,7 @@ bool DynamicLoaderFreeBSDKernel::ReadELFHeader(Process *process,
 
   if (header.getDataEncoding() == llvm::ELF::ELFDATA2MSB) {
     // TODO: swap byte order for big endian
+    return false;
   }
 
   return true;
@@ -431,7 +432,7 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingMemoryModule(
   // If this file is kernel module, adjust it's section(PT_LOAD segment) and return
   // Because the kernel module's load address is the text section.
   // lldb cannot create full memory module upon relocatable file
- // So what we do is to set the load address only.
+  // So what we do is to set the load address only.
   if (is_kmod(m_module_sp.get())) {
     m_stop_id = process->GetStopID();
     bool changed;
@@ -448,6 +449,7 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingMemoryModule(
     return false;
   }
 
+  // TODO: figure out why UUID is not same in FreeBSD Kernel dump
   // if (m_memory_module_sp->GetUUID() != m_module_sp->GetUUID())
   //     m_module_sp.reset();
 
@@ -672,8 +674,6 @@ bool DynamicLoaderFreeBSDKernel::ReadAllKmods(
       4, 0, error);
   if (error.Fail())
     return false;
-
-  Log *log = GetLog(LLDBLog::DynamicLoader);
 
   // Parse KMods
   addr_t kld_load_addr(LLDB_INVALID_ADDRESS);
