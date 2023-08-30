@@ -1760,7 +1760,8 @@ class VMAddressProvider {
   VMRange GetVMRange(const ELFSectionHeader &H) {
     addr_t Address = H.sh_addr;
     addr_t Size = H.sh_flags & SHF_ALLOC ? H.sh_size : 0;
-    if ((ObjectType == ObjectFile::Type::eTypeObjectFile || H.sh_addr == 0) && Segments.empty() && (H.sh_flags & SHF_ALLOC)) {
+    if ((ObjectType == ObjectFile::Type::eTypeObjectFile ||
+	 (ObjectType == ObjectFile::Type::eTypeDebugInfo && Address == 0)) && Segments.empty() && (H.sh_flags & SHF_ALLOC)) {
       NextVMAddress =
           llvm::alignTo(NextVMAddress, std::max<addr_t>(H.sh_addralign, 1));
       Address = NextVMAddress;
@@ -1892,6 +1893,7 @@ void ObjectFileELF::CreateSections(SectionList &unified_section_list) {
 
     elf::elf_xword log2align =
         (header.sh_addralign == 0) ? 0 : llvm::Log2_64(header.sh_addralign);
+
     SectionSP section_sp(new Section(
         InfoOr->Segment, GetModule(), // Module to which this section belongs.
         this,            // ObjectFile to which this section belongs and should
