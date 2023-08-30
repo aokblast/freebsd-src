@@ -428,7 +428,10 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingMemoryModule(
     }
   }
 
-  // If this file is kernel module, adjust it's section(PT_LOAD segment)
+  // If this file is kernel module, adjust it's section(PT_LOAD segment) and return
+  // Because the kernel module's load address is the text section.
+  // lldb cannot create full memory module upon relocatable file
+ // So what we do is to set the load address only.
   if (is_kmod(m_module_sp.get())) {
     m_stop_id = process->GetStopID();
     bool changed;
