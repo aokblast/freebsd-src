@@ -1761,7 +1761,7 @@ class VMAddressProvider {
     addr_t Address = H.sh_addr;
     addr_t Size = H.sh_flags & SHF_ALLOC ? H.sh_size : 0;
     if ((ObjectType == ObjectFile::Type::eTypeObjectFile ||
-	 (ObjectType == ObjectFile::Type::eTypeDebugInfo && Address == 0)) && Segments.empty() && (H.sh_flags & SHF_ALLOC)) {
+	(ObjectType == ObjectFile::Type::eTypeDebugInfo && Address == 0)) && Segments.empty() && (H.sh_flags & SHF_ALLOC)) {
       NextVMAddress =
           llvm::alignTo(NextVMAddress, std::max<addr_t>(H.sh_addralign, 1));
       Address = NextVMAddress;
