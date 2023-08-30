@@ -342,6 +342,7 @@ SRCS+=		Plugins/Disassembler/LLVMC/DisassemblerLLVMC.cpp
 SRCS+=		Plugins/DynamicLoader/POSIX-DYLD/DYLDRendezvous.cpp
 SRCS+=		Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.cpp
 SRCS+=		Plugins/DynamicLoader/Static/DynamicLoaderStatic.cpp
+SRCS+=		Plugins/DynamicLoader/FreeBSD-Kernel/DynamicLoaderFreeBSDKernel.cpp
 SRCS+=		Plugins/ExpressionParser/Clang/ASTResultSynthesizer.cpp
 SRCS+=		Plugins/ExpressionParser/Clang/ASTStructExtractor.cpp
 SRCS+=		Plugins/ExpressionParser/Clang/ASTUtils.cpp
