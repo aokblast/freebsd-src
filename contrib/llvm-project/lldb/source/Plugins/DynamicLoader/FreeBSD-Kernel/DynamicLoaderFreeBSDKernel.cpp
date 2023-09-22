@@ -31,26 +31,6 @@ using namespace lldb_private;
 
 LLDB_PLUGIN_DEFINE(DynamicLoaderFreeBSDKernel)
 
-// class PluginProperties : public Properties {
-// public:
-//     static ConstString &GetSettingName() {
-//         static ConstString g_setting_name("freebsd-kernel");
-//         return g_setting_name;
-//     }
-
-//     PluginProperties() : Properties() {
-//         m_collection_sp =
-//         std::make_shared<OptionValueProperties>(GetSettingName());
-//     }
-
-//     ~PluginProperties() override = default;
-// };
-
-// static PluginProperties &GetGlobalProperties() {
-//     static PluginProperties g_settings;
-//     return g_settings;
-// }
-
 void DynamicLoaderFreeBSDKernel::Initialize() {
   PluginManager::RegisterPlugin(GetPluginNameStatic(),
                                 GetPluginDescriptionStatic(), CreateInstance,
@@ -87,6 +67,18 @@ static bool is_kmod(Module *module) {
   if (!module->GetObjectFile())
     return false;
   ObjectFile *objfile = module->GetObjectFile();
+  if (objfile->GetType() != ObjectFile::eTypeObjectFile && objfile->GetType() != ObjectFile::eTypeSharedLibrary)
+    return false;
+
+  return true;
+}
+
+static bool is_reloc(Module *module) {
+  if (!module)
+    return false;
+  if (!module->GetObjectFile())
+    return false;
+  ObjectFile *objfile = module->GetObjectFile();
   if (objfile->GetType() != ObjectFile::eTypeObjectFile)
     return false;
 
@@ -111,9 +103,6 @@ DynamicLoaderFreeBSDKernel::CreateInstance(lldb_private::Process *process,
 
     const llvm::Triple &triple_ref =
         process->GetTarget().GetArchitecture().GetTriple();
-    // TODO: If we need to check unknow OS triple like armv7-unknown-unknown?
-    // TODO: I don't know if kFreeBSD is a type of FreeBSD and should we accept
-    // this Triple? Check the type of kernel
     if (!triple_ref.isOSFreeBSD()) {
       return nullptr;
     }
@@ -178,11 +167,6 @@ bool DynamicLoaderFreeBSDKernel::ReadELFHeader(Process *process,
 
   if (!header.checkMagic())
     return false;
-
-  if (header.getDataEncoding() == llvm::ELF::ELFDATA2MSB) {
-    // TODO: swap byte order for big endian
-    return false;
-  }
 
   return true;
 }
@@ -255,14 +239,6 @@ lldb_private::UUID DynamicLoaderFreeBSDKernel::CheckForKernelImageAtAddress(
 
 void DynamicLoaderFreeBSDKernel::DebuggerInit(
     lldb_private::Debugger &debugger) {
-  //   if (!PluginManager::GetSettingForDynamicLoaderPlugin(debugger,
-  //   PluginProperties::GetSettingName())) {
-  //     const bool is_global_setting = true;
-  //     PluginManager::CreateSettingForDynamicLoaderPlugin(
-  //         debugger, GetGlobalProperties().GetValueProperties(),
-  //         "Properties for the DynamicLoaderFreeBSDKernel plug-in." ,
-  //         is_global_setting);
-  // }
 }
 
 DynamicLoaderFreeBSDKernel::DynamicLoaderFreeBSDKernel(Process *process,
@@ -298,7 +274,6 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::ReadMemoryModule(
   llvm::ELF::Elf32_Ehdr elf_eheader;
   size_t size_to_read = 512;
 
-  // TODO:: If we have to check if the pheader entry is not follow after eheader
   if (ReadELFHeader(process, m_load_address, elf_eheader)) {
     if (elf_eheader.e_ident[llvm::ELF::EI_CLASS] == llvm::ELF::ELFCLASS32) {
       size_to_read = sizeof(llvm::ELF::Elf32_Ehdr) +
@@ -429,11 +404,11 @@ bool DynamicLoaderFreeBSDKernel::KModImageInfo::LoadImageUsingMemoryModule(
     }
   }
 
-  // If this file is kernel module, adjust it's section(PT_LOAD segment) and return
+  // If this file is relocatable kernel module(x86_64), adjust it's section(PT_LOAD segment) and return
   // Because the kernel module's load address is the text section.
   // lldb cannot create full memory module upon relocatable file
   // So what we do is to set the load address only.
-  if (is_kmod(m_module_sp.get())) {
+  if (is_kmod(m_module_sp.get()) && is_reloc(m_module_sp.get())) {
     m_stop_id = process->GetStopID();
     bool changed;
     m_module_sp->SetLoadAddress(target, m_load_address, true, changed);
