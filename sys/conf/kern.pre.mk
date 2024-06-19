@@ -199,6 +199,7 @@ LDFLAGS+=	-z notext -z ifunc-noplt
 CFLAGS+=	-fPIE
 .endif
 .endif
+CFLAGS+= 	-fsanitize=kcfi
 
 NORMAL_C= ${CC} -c ${CFLAGS} ${WERROR} ${.IMPSRC}
 NORMAL_S= ${CC:N${CCACHE_BIN}} -c ${ASM_CFLAGS} ${WERROR} ${.IMPSRC}

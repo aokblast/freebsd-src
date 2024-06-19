@@ -51,6 +51,7 @@
 #include <sys/param.h>
 #include <sys/asan.h>
 #include <sys/bus.h>
+#include <sys/cfi.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
 #include <sys/ptrace.h>
@@ -440,6 +441,10 @@ trap(struct trapframe *frame)
 			(void)trap_pfault(frame, false, NULL, NULL);
 			return;
 
+		case T_PRIVINFLT:
+			/* Triggered by ud2 with kCFI enabled */
+			if(cfi_handler(frame))
+				return;
 		case T_DNA:
 			if (PCB_USER_FPU(td->td_pcb))
 				panic("Unregistered use of FPU in kernel");

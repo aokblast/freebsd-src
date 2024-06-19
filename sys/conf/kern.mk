@@ -145,7 +145,7 @@ CFLAGS += -ffixed-x18
 CFLAGS += -mbranch-protection=standard
 INLINE_LIMIT?=	8000
 .endif
-
+CFLAGS += -fsanitize=kcfi
 #
 # For RISC-V we specify the soft-float ABI (lp64) to avoid the use of floating
 # point registers within the kernel. However, we include the F and D extensions
