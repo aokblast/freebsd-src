@@ -16,6 +16,7 @@ DIRDEPS = \
 	cddl/usr.bin/ctfconvert \
 	cddl/usr.bin/ctfdump \
 	cddl/usr.bin/ctfmerge \
+	cddl/usr.bin/ctfdiff \
 	cddl/usr.sbin/dtrace \
 	cddl/usr.sbin/dtruss \
 	cddl/usr.sbin/lockstat \

@@ -3,7 +3,8 @@
 SUBDIR.${MK_DTRACE}+= \
 	ctfconvert \
 	ctfdump \
-	ctfmerge
+	ctfmerge \
+	ctfdiff
 
 SUBDIR.${MK_TESTS}+= tests
 
