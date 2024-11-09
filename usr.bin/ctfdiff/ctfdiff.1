@@ -1,0 +1,68 @@
+.\"-
+.\" SPDX-License-Identifier: BSD-2-Clause
+.\"
+.\" Copyright (c) 2024 ShengYi Hung <aokblast@FreeBSD.org>
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+
+.Dd December 25, 2024
+.Dt CTFDIFF 1
+.Os
+.Sh NAME
+.Nm ctfdiff
+.Nd compare the SUNW_ctf section of two ELF files
+.Sh SYNOPSIS
+.Nm
+.Op Fl f-ignore-const
+.Fl u Ar file
+file
+.Sh DESCRIPTION
+The
+.Nm
+utility comapre the contents of the CTF (Compact C Type Format) data section
+(SUNW_ctf) present in two ELF binary files.
+This section was previously created with
+.Xr ctfconvert 1
+or
+.Xr ctfmerge 1 .
+.Pp
+The following options are available:
+.Bl -tag -width indent
+.It Fl f-ignore-const
+Show the statistic output by libxo
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh SEE ALSO
+.Xr ctfconvert 1 ,
+.Xr ctfmerge 1 ,
+.Xr ctfdump 1 ,
+.Xr ctf 5
+.Sh HISTORY
+The
+.Nm
+utility first appeared in
+.Fx 15.0 .
+.Sh AUTHORS
+ShengYi Hung <aokblast@FreeBSD.org>
+The CTF utilities came from OpenSolaris.
