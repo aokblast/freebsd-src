@@ -26,6 +26,7 @@ SUBDIR=	alias \
 	comm \
 	compress \
 	csplit \
+	ctfdiff \
 	ctlstat \
 	cut \
 	diff \
