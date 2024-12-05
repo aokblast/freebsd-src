@@ -20,6 +20,10 @@
 #ifndef INCLUDE_XO_H
 #define INCLUDE_XO_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <stdarg.h>
@@ -698,5 +702,9 @@ xo_retain_clear_all (void);
 
 void
 xo_retain_clear (const char *fmt);
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 #endif /* INCLUDE_XO_H */

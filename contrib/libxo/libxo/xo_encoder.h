@@ -18,6 +18,10 @@
 #ifndef XO_ENCODER_H
 #define XO_ENCODER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 #include <string.h>
 
 /*
@@ -166,5 +170,9 @@ xo_encoder_op_name (xo_encoder_op_t op);
  */
 void
 xo_failure (xo_handle_t *xop, const char *fmt, ...);
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 #endif /* XO_ENCODER_H */

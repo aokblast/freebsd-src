@@ -12,6 +12,10 @@
 #ifndef XO_EXPLICIT_H
 #define XO_EXPLICIT_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 /*
  * NOTE WELL: This file is needed to software that implements an
  * explicit transition between libxo states on its internal stack.
@@ -57,5 +61,8 @@ typedef unsigned xo_state_t;	/* XSS_* values */
 void
 xo_explicit_transition (xo_handle_t *xop, xo_state_t new_state,
 			const char *tag, xo_xof_flags_t flags);
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 #endif /* XO_EXPLICIT_H */

@@ -19,6 +19,10 @@
 #ifndef XO_BUF_H
 #define XO_BUF_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif /* __cplusplus */
+
 #define XO_BUFSIZ		(8*1024) /* Initial buffer size */
 #define XO_BUF_HIGH_WATER	(XO_BUFSIZ - 512) /* When to auto-flush */
 /*
@@ -159,5 +163,9 @@ xo_buf_append_str (xo_buffer_t *xbp, const char *str)
     memcpy(xbp->xb_curp, str, len);
     xbp->xb_curp += len;
 }
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
 
 #endif /* XO_BUF_H */
