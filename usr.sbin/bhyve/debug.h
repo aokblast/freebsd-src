@@ -28,6 +28,7 @@
 #ifndef _DEBUG_H_
 #define _DEBUG_H_
 
+#include <stdio.h>
 
 extern int raw_stdio;
 
