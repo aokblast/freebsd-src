@@ -63,8 +63,10 @@
 
 #include "bhyvegc.h"
 #include "debug.h"
+#include "bhyverun.h"
 #include "console.h"
 #include "config.h"
+
 #include "rfb.h"
 #include "sockstream.h"
 
@@ -142,9 +144,7 @@ struct rfb_softc {
 	atomic_bool	input_detected;
 	atomic_bool	update_pixfmt;
 
-	pthread_mutex_t mtx;
 	pthread_mutex_t pixfmt_mtx;
-	pthread_cond_t  cond;
 
 	int		hw_crc;
 	uint32_t	*crc;		/* WxH crc cells */
@@ -1312,9 +1312,7 @@ rfb_thr(void *arg)
 
 		cfd = accept(rc->sfd, NULL, NULL);
 		if (rc->conn_wait) {
-			pthread_mutex_lock(&rc->mtx);
-			pthread_cond_signal(&rc->cond);
-			pthread_mutex_unlock(&rc->mtx);
+			bhyve_init_notify();
 			rc->conn_wait = 0;
 		}
 		rfb_handle(rc, cfd);
@@ -1441,15 +1439,14 @@ rfb_init(sa_family_t family, const char *hostname, int port, int wait,
 	rc->hw_crc = sse42_supported();
 
 	rc->conn_wait = wait;
-	if (wait) {
-		pthread_mutex_init(&rc->mtx, NULL);
-		pthread_cond_init(&rc->cond, NULL);
-	}
+	if (wait)
+		bhyve_init_block();
 
 	pthread_mutex_init(&rc->pixfmt_mtx, NULL);
 	pthread_create(&rc->tid, NULL, rfb_thr, rc);
 	pthread_set_name_np(rc->tid, "rfb");
 
+<<<<<<< HEAD
 	if (wait) {
 		DPRINTF(("Waiting for rfb client..."));
 		pthread_mutex_lock(&rc->mtx);
@@ -1460,6 +1457,9 @@ rfb_init(sa_family_t family, const char *hostname, int port, int wait,
 
 	if (family != AF_UNIX)
 		freeaddrinfo(ai);
+=======
+	freeaddrinfo(ai);
+>>>>>>> a4446bad2d1d (usr.sbin/bhyve: add rendezvous layer for initialization step of bhyve)
 	return (0);
 
  error:

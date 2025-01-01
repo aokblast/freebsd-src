@@ -28,7 +28,6 @@
 #ifndef _DEBUG_H_
 #define _DEBUG_H_
 
-
 extern int raw_stdio;
 
 #define FPRINTLN(filep, fmt, arg...)				\
