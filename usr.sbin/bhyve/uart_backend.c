@@ -48,6 +48,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "bhyverun.h"
 #include "debug.h"
 #include "mevent.h"
 #include "uart_backend.h"
@@ -74,6 +75,7 @@ struct uart_softc {
 	struct fifo	rxfifo;
 	struct mevent	*mev;
 	pthread_mutex_t mtx;
+	bool	wait;
 };
 
 struct uart_socket_softc {
@@ -82,7 +84,7 @@ struct uart_socket_softc {
 	void *arg;
 };
 
-static bool uart_stdio;		/* stdio in use for i/o */
+static bool uart_stdio; /* stdio in use for i/o */
 static struct termios tio_stdio_orig;
 
 static void uart_tcp_disconnect(struct uart_softc *);
@@ -319,6 +321,11 @@ uart_tcp_listener(int fd, enum ev_type type __unused, void *arg)
 		    socket_softc->arg);
 	}
 
+	if (sc->wait) {
+		sc->wait = false;
+		bhyve_init_notify();
+	}
+
 	pthread_mutex_unlock(&sc->mtx);
 	return;
 
@@ -427,15 +434,26 @@ uart_tcp_backend(struct uart_softc *sc, const char *path,
 	int domain;
 	struct addrinfo hints, *src_addr = NULL;
 	struct uart_socket_softc *socket_softc = NULL;
+	const char *args;
 
-	if (sscanf(path, "tcp=[%255[^]]]:%5s", addr, port) == 2) {
+	args = strchr(path, ',');
+
+	if (*args != '\0')
+		++args;
+
+	if (sscanf(path, "tcp=[%255[^]]]:%5[^,]", addr, port) == 2) {
 		domain = AF_INET6;
-	} else if (sscanf(path, "tcp=%255[^:]:%5s", addr, port) == 2) {
+	} else if (sscanf(path, "tcp=%255[^:]:%5[^,]", addr, port) == 2) {
 		domain = AF_INET;
 	} else {
 		warnx("Invalid number of parameter");
 		goto clean;
 	}
+
+	sc->wait = strcmp(args, "wait") == 0;
+
+	if (sc->wait == true)
+		bhyve_init_block();
 
 	bind_fd = socket(domain, SOCK_STREAM, 0);
 	if (bind_fd < 0)
