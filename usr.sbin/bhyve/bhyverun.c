@@ -118,6 +118,53 @@ static struct vcpu_info {
 
 static cpuset_t **vcpumap;
 
+struct init_rendezvous_softc {
+	pthread_mutex_t	mtx; /* lock prevent race condition from member and wait thread */
+	pthread_cond_t	cond; /* cond variable to notify the wait thread */
+	int	counter; /* counter on how much component still wait for connection */
+};
+
+static struct init_rendezvous_softc rendezvous_softc = { 0 };
+
+static void
+create_init_rendezvous_softc(void)
+{
+	int error;
+
+	if ((error = pthread_mutex_init(&rendezvous_softc.mtx, NULL)) != 0)
+		errc(1, error, "init rendezvous mutex");
+	if ((error = pthread_cond_init(&rendezvous_softc.cond, NULL)) != 0)
+		errc(1, error, "init rendezvous cond variable");
+}
+
+static void
+bhyve_init_wait(void)
+{
+	pthread_mutex_lock(&rendezvous_softc.mtx);
+	while (rendezvous_softc.counter > 0)
+		pthread_cond_wait(&rendezvous_softc.cond,
+		    &rendezvous_softc.mtx);
+	pthread_mutex_unlock(&rendezvous_softc.mtx);
+}
+
+void
+bhyve_init_block(void)
+{
+	pthread_mutex_lock(&rendezvous_softc.mtx);
+	rendezvous_softc.counter += 1;
+	pthread_mutex_unlock(&rendezvous_softc.mtx);
+}
+
+void
+bhyve_init_notify(void)
+{
+	pthread_mutex_lock(&rendezvous_softc.mtx);
+	assert(rendezvous_softc.counter > 0);
+	rendezvous_softc.counter--;
+	pthread_cond_broadcast(&rendezvous_softc.cond);
+	pthread_mutex_unlock(&rendezvous_softc.mtx);
+}
+
 /*
  * XXX This parser is known to have the following issues:
  * 1.  It accepts null key=value tokens ",," as setting "cpus" to an
@@ -391,6 +438,8 @@ fbsdrun_start_thread(void *param)
 	gdb_cpu_add(vi->vcpu);
 #endif
 
+	bhyve_init_wait();
+
 	vm_loop(vi->ctx, vi->vcpu);
 
 	/* not reached */
@@ -642,6 +691,8 @@ main(int argc, char *argv[])
 
 	if (argc > 1)
 		bhyve_usage(1);
+
+	create_init_rendezvous_softc();
 
 #ifdef BHYVE_SNAPSHOT
 	if (restore_file != NULL) {

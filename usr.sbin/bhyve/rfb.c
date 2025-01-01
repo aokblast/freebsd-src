@@ -52,17 +52,17 @@
 #include <pthread_np.h>
 #include <signal.h>
 #include <stdbool.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sysexits.h>
 #include <unistd.h>
-
 #include <zlib.h>
 
 #include "bhyvegc.h"
-#include "debug.h"
+#include "bhyverun.h"
 #include "console.h"
+#include "debug.h"
 #include "rfb.h"
 #include "sockstream.h"
 
@@ -140,9 +140,7 @@ struct rfb_softc {
 	atomic_bool	input_detected;
 	atomic_bool	update_pixfmt;
 
-	pthread_mutex_t mtx;
 	pthread_mutex_t pixfmt_mtx;
-	pthread_cond_t  cond;
 
 	int		hw_crc;
 	uint32_t	*crc;		/* WxH crc cells */
@@ -1225,9 +1223,7 @@ rfb_thr(void *arg)
 
 		cfd = accept(rc->sfd, NULL, NULL);
 		if (rc->conn_wait) {
-			pthread_mutex_lock(&rc->mtx);
-			pthread_cond_signal(&rc->cond);
-			pthread_mutex_unlock(&rc->mtx);
+			bhyve_init_notify();
 			rc->conn_wait = 0;
 		}
 		rfb_handle(rc, cfd);
@@ -1328,22 +1324,12 @@ rfb_init(const char *hostname, int port, int wait, const char *password)
 	rc->hw_crc = sse42_supported();
 
 	rc->conn_wait = wait;
-	if (wait) {
-		pthread_mutex_init(&rc->mtx, NULL);
-		pthread_cond_init(&rc->cond, NULL);
-	}
+	if (wait)
+		bhyve_init_block();
 
 	pthread_mutex_init(&rc->pixfmt_mtx, NULL);
 	pthread_create(&rc->tid, NULL, rfb_thr, rc);
 	pthread_set_name_np(rc->tid, "rfb");
-
-	if (wait) {
-		DPRINTF(("Waiting for rfb client..."));
-		pthread_mutex_lock(&rc->mtx);
-		pthread_cond_wait(&rc->cond, &rc->mtx);
-		pthread_mutex_unlock(&rc->mtx);
-		DPRINTF(("rfb client connected"));
-	}
 
 	freeaddrinfo(ai);
 	return (0);

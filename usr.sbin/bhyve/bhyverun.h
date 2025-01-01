@@ -79,4 +79,14 @@ void bhyve_start_vcpu(struct vcpu *vcpu, bool bsp);
 int bhyve_init_platform(struct vmctx *ctx, struct vcpu *bsp);
 int bhyve_init_platform_late(struct vmctx *ctx, struct vcpu *bsp);
 
+/*
+ * called to register a notifier and block startup thread on
+ */
+void bhyve_init_block(void);
+
+/*
+ * notify the startup thread
+ */
+void bhyve_init_notify(void);
+
 #endif
