@@ -313,6 +313,7 @@ ipheth_tick(struct usb_ether *ue)
 	struct usb_device_request req;
 	int error;
 	uint16_t req_len;
+	uint8_t new_carrier_state;
 
 	req.bmRequestType = UT_READ_VENDOR_DEVICE;
 	req.bRequest = IPHETH_CMD_CARRIER_CHECK;
@@ -329,8 +330,14 @@ ipheth_tick(struct usb_ether *ue)
 	if (error)
 		return;
 
-	sc->sc_carrier_on = ((req_len > 1 ? sc->sc_data[1] : sc->sc_data[0]) ==
+	new_carrier_state = ((req_len > 1 ? sc->sc_data[1] : sc->sc_data[0]) ==
 	    IPHETH_CARRIER_ON);
+
+	if (sc->sc_carrier_on != new_carrier_state) {
+		sc->sc_carrier_on = new_carrier_state;
+		if_link_state_change(uether_getifp(ue),
+		    new_carrier_state ? LINK_STATE_UP : LINK_STATE_DOWN);
+	}
 }
 
 static void
