@@ -312,6 +312,7 @@ ipheth_tick(struct usb_ether *ue)
 	struct ipheth_softc *sc = uether_getsc(ue);
 	struct usb_device_request req;
 	int error;
+	uint16_t req_len;
 
 	req.bmRequestType = UT_READ_VENDOR_DEVICE;
 	req.bRequest = IPHETH_CMD_CARRIER_CHECK;
@@ -322,13 +323,14 @@ ipheth_tick(struct usb_ether *ue)
 	req.wLength[0] = IPHETH_CTRL_BUF_SIZE;
 	req.wLength[1] = 0;
 
-	error = uether_do_request(ue, &req, sc->sc_data, IPHETH_CTRL_TIMEOUT);
+	error = usbd_do_request_proc(ue->ue_udev, &ue->ue_tq, &req, sc->sc_data,
+	    0, &req_len, IPHETH_CTRL_TIMEOUT);
 
 	if (error)
 		return;
 
-	sc->sc_carrier_on =
-	    (sc->sc_data[0] == IPHETH_CARRIER_ON);
+	sc->sc_carrier_on = ((req_len > 1 ? sc->sc_data[1] : sc->sc_data[0]) ==
+	    IPHETH_CARRIER_ON);
 }
 
 static void
