@@ -2521,7 +2521,7 @@ spa_name_compare(const void *a1, const void *a2)
 }
 
 void
-spa_boot_init(void)
+spa_boot_init(void*dummy __unused)
 {
 	spa_config_load();
 }
