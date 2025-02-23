@@ -657,7 +657,7 @@ ipreass_drain_vnet(void)
  * Drain off all datagram fragments.
  */
 static void
-ipreass_drain(void)
+ipreass_drain(void *_1 __unused, int _2 __unused)
 {
 	VNET_ITERATOR_DECL(vnet_iter);
 
@@ -868,7 +868,7 @@ sysctl_maxfragpackets(SYSCTL_HANDLER_ARGS)
 		V_noreass = 0;
 	} else if (max == 0) {
 		V_noreass = 1;
-		ipreass_drain();
+		ipreass_drain(NULL, 0);
 	} else if (max == -1) {
 		V_noreass = 0;
 		uma_zone_set_max(V_ipq_zone, 0);

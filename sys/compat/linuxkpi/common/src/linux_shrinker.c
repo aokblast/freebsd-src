@@ -92,7 +92,7 @@ shrinker_shrink(struct shrinker *s)
 }
 
 static void
-linuxkpi_vm_lowmem(void *arg __unused)
+linuxkpi_vm_lowmem(void *arg __unused, int _2 __unused)
 {
 	struct shrinker *s;
 

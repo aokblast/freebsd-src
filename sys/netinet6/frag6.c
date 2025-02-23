@@ -1078,7 +1078,7 @@ frag6_drain_one(void)
 }
 
 void
-frag6_drain(void)
+frag6_drain(void *_1 __unused, int _2 __unused)
 {
 	VNET_ITERATOR_DECL(vnet_iter);
 
