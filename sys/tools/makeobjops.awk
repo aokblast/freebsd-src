@@ -45,6 +45,7 @@ function usage ()
 	print "      -p   use the path component in the source file for destination dir";
 	print "      -l   set line width for output files [80]";
 	print "      -d   switch on debugging";
+	print "      -s   generate default function with correct signature when DEFAULT is missed";
 	exit 1;
 }
 
@@ -291,8 +292,16 @@ function handle_method (static, doc)
 
 	firstvar = varnames[1];
 
-	if (default_function == "")
+	if (default_function == "") {
 		default_function = "kobj_error_method";
+
+		if (opt_s) {
+			default_function=mname "_error_method";
+			# Generate correct default function for KCFI use
+			# kobj_error_method return ENXIO
+			printc("static " ret " " default_function "(" argument_list ")\n{\n    " "return (" ret ") ENXIO;\n}\n");
+		}
+	}
 
 	# the method description 
 	printh("/** @brief Unique descriptor for the " umname "() method */");
@@ -364,6 +373,7 @@ for (i = 1; i < ARGC; i++) {
 			else if	(o == "h")	opt_h = 1;
 			else if	(o == "p")	opt_p = 1;
 			else if	(o == "d")	opt_d = 1;
+			else if (o == "s")	opt_s = 1;
 			else if	(o == "l") {
 				if (length(ARGV[i]) > j) {
 					opt_l = substr(ARGV[i], j + 1);
