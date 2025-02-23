@@ -69,7 +69,7 @@ CODE {
 
 	static void * null_register(device_t dev)
 	{
-		return NULL;
+	    return NULL;
 	}
 };
 	
