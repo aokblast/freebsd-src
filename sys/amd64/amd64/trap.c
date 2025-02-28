@@ -51,6 +51,7 @@
 #include <sys/param.h>
 #include <sys/asan.h>
 #include <sys/bus.h>
+#include <sys/cfi.h>
 #include <sys/systm.h>
 #include <sys/proc.h>
 #include <sys/ptrace.h>
@@ -439,6 +440,14 @@ trap(struct trapframe *frame)
 		case T_PAGEFLT:			/* page fault */
 			(void)trap_pfault(frame, false, NULL, NULL);
 			return;
+
+		case T_PRIVINFLT:
+/* Triggered by ud2 with kCFI enabled */
+#ifdef KCFI
+			if (cfi_handler(frame))
+				return;
+#endif
+			break;
 
 		case T_DNA:
 			if (PCB_USER_FPU(td->td_pcb))

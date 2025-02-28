@@ -291,6 +291,10 @@ SAN_CFLAGS+=	-DSAN_NEEDS_INTERCEPTORS -DSAN_INTERCEPTOR_PREFIX=kcsan \
 		-fsanitize=thread
 .endif
 
+.if !empty(KCFI_ENABLED)
+SAN_CFLAGS+=	-fsanitize=kcfi
+.endif
+
 #
 # Kernel Memory SANitizer support
 #

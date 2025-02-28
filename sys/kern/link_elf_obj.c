@@ -31,6 +31,7 @@
 
 #include <sys/param.h>
 #include <sys/systm.h>
+#include <sys/cfi.h>
 #include <sys/fcntl.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
@@ -576,7 +577,13 @@ link_elf_link_preload(linker_class_t cls, const char *filename,
 					lf->dtors_size = shdr[i].sh_size;
 				}
 			}
-
+#ifdef KCFI
+			else if (ef->progtab[pb].name != NULL &&
+			    strcmp(ef->progtab[pb].name, ".kcfi_traps") == 0) {
+				lf->kcfi_traps_addr = ef->progtab[pb].addr;
+				lf->kcfi_traps_size = shdr[i].sh_size;
+			}
+#endif
 			/* Update all symbol values with the offset. */
 			for (j = 0; j < ef->ddbsymcnt; j++) {
 				es = &ef->ddbsymtab[j];
@@ -643,7 +650,7 @@ out:
 }
 
 static void
-link_elf_invoke_cbs(caddr_t addr, size_t size)
+link_elf_invoke_cbs(caddr_t addr, size_t size) __NOCFI
 {
 	void (**ctor)(void);
 	size_t i, cnt;
@@ -1081,6 +1088,13 @@ link_elf_load_file(linker_class_t cls, const char *filename,
 						    shdr[i].sh_size;
 					}
 				}
+#ifdef KCFI
+				else if (!strcmp(ef->progtab[pb].name,
+					     ".kcfi_traps")) {
+					lf->kcfi_traps_addr = (caddr_t)mapbase;
+					lf->kcfi_traps_size = shdr[i].sh_size;
+				}
+#endif
 			} else if (shdr[i].sh_type == SHT_PROGBITS)
 				ef->progtab[pb].name = "<<PROGBITS>>";
 #ifdef __amd64__
@@ -1515,7 +1529,7 @@ link_elf_lookup_debug_symbol_ctf(linker_file_t lf, const char *name,
 
 static int
 link_elf_symbol_values1(linker_file_t lf, c_linker_sym_t sym,
-    linker_symval_t *symval, bool see_local)
+    linker_symval_t *symval, bool see_local) __NOCFI
 {
 	elf_file_t ef;
 	const Elf_Sym *es;
@@ -1689,7 +1703,8 @@ elf_obj_cleanup_globals_cache(elf_file_t ef)
  * the case that the symbol can be found through the hash table.
  */
 static int
-elf_obj_lookup(linker_file_t lf, Elf_Size symidx, int deps, Elf_Addr *res)
+elf_obj_lookup(linker_file_t lf, Elf_Size symidx, int deps,
+    Elf_Addr *res) __NOCFI
 {
 	elf_file_t ef = (elf_file_t)lf;
 	Elf_Sym *sym;

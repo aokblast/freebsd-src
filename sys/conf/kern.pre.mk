@@ -92,6 +92,7 @@ ASM_CFLAGS= -x assembler-with-cpp -DLOCORE ${CFLAGS} ${ASM_CFLAGS.${.IMPSRC:T}}
 
 COMPAT_FREEBSD32_ENABLED!= grep COMPAT_FREEBSD32 opt_global.h || true ; echo
 
+KCFI_ENABLED!= grep KCFI opt_global.h || true ; echo
 KASAN_ENABLED!=	grep KASAN opt_global.h || true ; echo
 KCSAN_ENABLED!= grep KCSAN opt_global.h || true ; echo
 KMSAN_ENABLED!= grep KMSAN opt_global.h || true ; echo
@@ -103,6 +104,10 @@ GCOV_ENABLED!=	grep GCOV opt_global.h || true ; echo
 .if ${COMPILER_TYPE} == "gcc"
 GCOV_CFLAGS+=	 -fprofile-arcs -ftest-coverage
 .endif
+.endif
+
+.if !empty(KCFI_ENABLED)
+MAKEOBJOPT=	"-s"
 .endif
 
 CFLAGS+=	${GCOV_CFLAGS}
@@ -149,7 +154,7 @@ NORMAL_C= ${CC} -c ${CFLAGS} ${WERROR} ${.IMPSRC}
 NORMAL_S= ${CC:N${CCACHE_BIN}} -c ${ASM_CFLAGS} ${WERROR} ${.IMPSRC}
 NORMAL_C_NOWERROR= ${CC} -c ${CFLAGS} ${.IMPSRC}
 
-NORMAL_M= ${AWK} -f $S/tools/makeobjops.awk ${.IMPSRC} -c ; \
+NORMAL_M= ${AWK} -f $S/tools/makeobjops.awk ${.IMPSRC} -c ${MAKEOBJOPT} ; \
 	  ${CC} -c ${CFLAGS} ${WERROR} ${.PREFIX}.c
 
 NORMAL_FW= uudecode -o ${.TARGET} ${.ALLSRC}

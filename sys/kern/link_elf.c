@@ -30,6 +30,7 @@
 #include "opt_gdb.h"
 
 #include <sys/param.h>
+#include <sys/cfi.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
@@ -358,7 +359,7 @@ link_elf_error(const char *filename, const char *s)
 }
 
 static void
-link_elf_invoke_cbs(caddr_t addr, size_t size)
+link_elf_invoke_cbs(caddr_t addr, size_t size) __NOCFI
 {
 	void (**ctor)(void);
 	size_t i, cnt;
@@ -448,8 +449,8 @@ static void
 link_elf_init(void* arg)
 {
 	Elf_Dyn *dp;
-	Elf_Addr *ctors_addrp;
-	Elf_Size *ctors_sizep;
+	Elf_Addr *addrp;
+	Elf_Size *sizep;
 	caddr_t modptr, baseptr, sizeptr;
 	elf_file_t ef;
 	const char *modname;
@@ -501,15 +502,25 @@ link_elf_init(void* arg)
 		sizeptr = preload_search_info(modptr, MODINFO_SIZE);
 		if (sizeptr != NULL)
 			linker_kernel_file->size = *(size_t *)sizeptr;
-		ctors_addrp = (Elf_Addr *)preload_search_info(modptr,
-			MODINFO_METADATA | MODINFOMD_CTORS_ADDR);
-		ctors_sizep = (Elf_Size *)preload_search_info(modptr,
-			MODINFO_METADATA | MODINFOMD_CTORS_SIZE);
-		if (ctors_addrp != NULL && ctors_sizep != NULL) {
-			linker_kernel_file->ctors_addr = ef->address +
-			    *ctors_addrp;
-			linker_kernel_file->ctors_size = *ctors_sizep;
+		addrp = (Elf_Addr *)preload_search_info(modptr,
+		    MODINFO_METADATA | MODINFOMD_CTORS_ADDR);
+		sizep = (Elf_Size *)preload_search_info(modptr,
+		    MODINFO_METADATA | MODINFOMD_CTORS_SIZE);
+		if (addrp != NULL && sizep != NULL) {
+			linker_kernel_file->ctors_addr = ef->address + *addrp;
+			linker_kernel_file->ctors_size = *sizep;
 		}
+#ifdef KCFI
+		addrp = (Elf_Addr *)preload_search_info(modptr,
+		    MODINFO_METADATA | MODINFOMD_CFI_ADDR);
+		sizep = (Elf_Size *)preload_search_info(modptr,
+		    MODINFO_METADATA | MODINFOMD_CFI_SIZE);
+		if (addrp != NULL && sizep != NULL) {
+			linker_kernel_file->kcfi_traps_addr = ef->address +
+			    *addrp;
+			linker_kernel_file->kcfi_traps_size = *sizep;
+		}
+#endif
 	}
 	(void)link_elf_preload_parse_symbols(ef);
 
@@ -876,6 +887,26 @@ link_elf_locate_exidx_preload(struct linker_file *lf, caddr_t modptr)
 
 #endif /* __arm__ */
 
+#ifdef KCFI
+
+static void
+link_elf_locate_kcfi_traps_preload(struct linker_file *lf, caddr_t modptr)
+{
+	Elf_Addr *kcfi_addrp;
+	Elf_Size *kcfi_sizep;
+
+	kcfi_addrp = (Elf_Addr *)preload_search_info(modptr,
+	    MODINFO_METADATA | MODINFOMD_CFI_ADDR);
+	kcfi_sizep = (Elf_Size *)preload_search_info(modptr,
+	    MODINFO_METADATA | MODINFOMD_CFI_SIZE);
+	if (kcfi_addrp != NULL && kcfi_sizep != NULL) {
+		lf->kcfi_traps_addr = ((elf_file_t)lf)->address + *kcfi_addrp;
+		lf->kcfi_traps_size = *kcfi_sizep;
+	}
+}
+
+#endif /* KCFI */
+
 static int
 link_elf_link_preload(linker_class_t cls, const char *filename,
     linker_file_t *result)
@@ -933,6 +964,10 @@ link_elf_link_preload(linker_class_t cls, const char *filename,
 
 #ifdef __arm__
 	link_elf_locate_exidx_preload(lf, modptr);
+#endif
+
+#ifdef KCFI
+	link_elf_locate_kcfi_traps_preload(lf, modptr);
 #endif
 
 	error = parse_dynamic(ef);
@@ -1291,11 +1326,22 @@ link_elf_load_file(linker_class_t cls, const char* filename,
 		if (shdr[i].sh_type == SHT_SYMTAB) {
 			symtabindex = i;
 			symstrindex = shdr[i].sh_link;
-		} else if (shstrs != NULL && shdr[i].sh_name != 0 &&
-		    strcmp(shstrs + shdr[i].sh_name, ".ctors") == 0) {
-			/* Record relocated address and size of .ctors. */
-			lf->ctors_addr = mapbase + shdr[i].sh_addr - base_vaddr;
-			lf->ctors_size = shdr[i].sh_size;
+		} else if (shstrs != NULL && shdr[i].sh_name != 0) {
+			if (strcmp(shstrs + shdr[i].sh_name, ".ctors") == 0) {
+				/* Record relocated address and size of .ctors.
+				 */
+				lf->ctors_addr = mapbase + shdr[i].sh_addr -
+				    base_vaddr;
+				lf->ctors_size = shdr[i].sh_size;
+			}
+#ifdef KCFI
+			else if (strcmp(shstrs + shdr[i].sh_name,
+				     ".kcfi_traps") == 0) {
+				lf->kcfi_traps_addr = mapbase +
+				    shdr[i].sh_addr - base_vaddr;
+				lf->kcfi_traps_size = shdr[i].sh_size;
+			}
+#endif
 		}
 	}
 	if (symtabindex < 0 || symstrindex < 0)
@@ -1636,7 +1682,7 @@ link_elf_lookup_debug_symbol_ctf(linker_file_t lf, const char *name,
 
 static int
 link_elf_symbol_values1(linker_file_t lf, c_linker_sym_t sym,
-    linker_symval_t *symval, bool see_local)
+    linker_symval_t *symval, bool see_local) __NOCFI
 {
 	elf_file_t ef;
 	const Elf_Sym *es;
@@ -1669,7 +1715,7 @@ link_elf_symbol_values(linker_file_t lf, c_linker_sym_t sym,
 
 static int
 link_elf_debug_symbol_values(linker_file_t lf, c_linker_sym_t sym,
-    linker_symval_t *symval)
+    linker_symval_t *symval) __NOCFI
 {
 	elf_file_t ef = (elf_file_t)lf;
 	const Elf_Sym *es = (const Elf_Sym *)sym;
@@ -1999,7 +2045,7 @@ link_elf_propagate_vnets(linker_file_t lf)
  */
 static int
 elf_lookup_ifunc(linker_file_t lf, Elf_Size symidx, int deps __unused,
-    Elf_Addr *res)
+    Elf_Addr *res) __NOCFI
 {
 	elf_file_t ef;
 	const Elf_Sym *symp;
