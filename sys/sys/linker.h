@@ -104,6 +104,8 @@ struct linker_file {
      */
     int			nenabled;	/* number of enabled probes. */
     int			fbt_nentries;	/* number of fbt entries created. */
+    caddr_t		kcfi_traps_addr; /* KCFI trap table start */
+    size_t		kcfi_traps_size;  /* KCFI trap table size */
 
 #ifdef __arm__
     caddr_t		exidx_addr;	/* Unwind data index table start */
@@ -260,6 +262,8 @@ void linker_kldload_unbusy(int flags);
 #define MODINFOMD_FONT		0x000e		/* Console font */
 #define MODINFOMD_SPLASH	0x000f		/* Console splash screen */
 #define MODINFOMD_SHTDWNSPLASH	0x0010		/* Console shutdown splash screen */
+#define MODINFOMD_CFI_ADDR	0x0020		/* address of .kcfi_traps */
+#define MODINFOMD_CFI_SIZE	0x0040		/* size of .kcfi_traps */
 #define MODINFOMD_NOCOPY	0x8000		/* don't copy this metadata to the kernel */
 
 #define MODINFOMD_DEPLIST	(0x4001 | MODINFOMD_NOCOPY)	/* depends on */
