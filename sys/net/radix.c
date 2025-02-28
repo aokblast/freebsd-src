@@ -1055,7 +1055,7 @@ rn_walktree_from(struct radix_head *h, void *a, void *m,
 }
 
 int
-rn_walktree(struct radix_head *h, walktree_f_t *f, void *w)
+rn_walktree(struct radix_head *h, walktree_f_t *f, void *w) __nosanitizekcfi
 {
 	int error;
 	struct radix_node *base, *next;
