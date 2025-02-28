@@ -1195,7 +1195,7 @@ intr_event_execute_handlers(struct proc *p, struct intr_event *ie)
 }
 
 static void
-ithread_execute_handlers(struct proc *p, struct intr_event *ie)
+ithread_execute_handlers(struct proc *p, struct intr_event *ie) __nosanitizecfi
 {
 
 	/* Only specifically marked sleepable interrupt handlers can sleep. */
@@ -1342,7 +1342,7 @@ ithread_loop(void *arg)
  * o EINVAL:                    stray interrupt.
  */
 int
-intr_event_handle(struct intr_event *ie, struct trapframe *frame)
+intr_event_handle(struct intr_event *ie, struct trapframe *frame) __nosanitizecfi
 {
 	struct intr_handler *ih;
 	struct trapframe *oldframe;

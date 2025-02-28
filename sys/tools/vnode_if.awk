@@ -389,7 +389,7 @@ while ((getline < srcfile) > 0) {
 		printc("");
 		printc("\treturn(" uname "_APV(a->a_" args[0] "->v_op, a));");
 		printc("}");
-		printc("\nint\n" uname "_APV(const struct vop_vector *vop, struct " name "_args *a)");
+		printc("\nint\n" uname "_APV(const struct vop_vector *vop, struct " name "_args *a) __nosanitizecfi");
 		printc("{");
 		printc("\tint rc;");
 		printc("");

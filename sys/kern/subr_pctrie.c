@@ -931,7 +931,7 @@ pctrie_iter_value(struct pctrie_iter *it)
  */
 static __always_inline struct pctrie_node *
 pctrie_reclaim_prune(struct pctrie_node **pnode, struct pctrie_node *parent,
-    pctrie_cb_t callback, int keyoff, void *arg)
+    pctrie_cb_t callback, int keyoff, void *arg) __nosanitizecfi
 {
 	struct pctrie_node *child, *node;
 	int slot;
@@ -961,8 +961,8 @@ pctrie_reclaim_prune(struct pctrie_node **pnode, struct pctrie_node *parent,
  * Recover the node parent from its first child and continue pruning.
  */
 static __always_inline struct pctrie_node *
-pctrie_reclaim_resume_compound(struct pctrie_node **pnode,
-    pctrie_cb_t callback, int keyoff, void *arg)
+pctrie_reclaim_resume_compound(struct pctrie_node **pnode, pctrie_cb_t callback,
+    int keyoff, void *arg) __nosanitizecfi
 {
 	if (*pnode == NULL)
 		return (NULL);
@@ -975,9 +975,8 @@ pctrie_reclaim_resume_compound(struct pctrie_node **pnode,
  * Find the trie root, and start pruning with a NULL parent.
  */
 static __always_inline struct pctrie_node *
-pctrie_reclaim_begin_compound(struct pctrie_node **pnode,
-    struct pctrie *ptree,
-    pctrie_cb_t callback, int keyoff, void *arg)
+pctrie_reclaim_begin_compound(struct pctrie_node **pnode, struct pctrie *ptree,
+    pctrie_cb_t callback, int keyoff, void *arg) __nosanitizecfi
 {
 	struct pctrie_node *node;
 

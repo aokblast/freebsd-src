@@ -144,7 +144,6 @@ struct eventtimer;
 int	setjmp(struct _jmp_buf *) __returns_twice;
 void	longjmp(struct _jmp_buf *, int) __dead2;
 int	dumpstatus(vm_offset_t addr, off_t count);
-int	nullop(void);
 int	eopnotsupp(void);
 int	ureadc(int, struct uio *);
 void	hashdestroy(void *, struct malloc_type *, u_long);

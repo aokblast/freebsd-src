@@ -50,7 +50,7 @@
 #include <security/audit/audit.h>
 
 static inline void
-syscallenter(struct thread *td)
+syscallenter(struct thread *td) __nosanitizecfi
 {
 	struct proc *p;
 	struct syscall_args *sa;
