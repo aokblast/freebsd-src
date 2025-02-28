@@ -801,7 +801,7 @@ boottime:
 }
 
 static void
-epoch_call_task(void *arg __unused)
+epoch_call_task(void *arg __unused) __nosanitizekcfi
 {
 	ck_stack_entry_t *cursor, *head, *next;
 	ck_epoch_record_t *record;

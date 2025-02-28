@@ -1157,7 +1157,7 @@ int	enterpgrp(struct proc *p, pid_t pgid, struct pgrp *pgrp,
 	    struct session *sess);
 int	enterthispgrp(struct proc *p, struct pgrp *pgrp);
 int	fork1(struct thread *, struct fork_req *);
-void	fork_exit(void (*)(void *, struct trapframe *), void *,
+void	fork_exit(void (*)(struct thread *, struct trapframe *), void *,
 	    struct trapframe *);
 void	fork_return(struct thread *, struct trapframe *);
 int	inferior(struct proc *p);

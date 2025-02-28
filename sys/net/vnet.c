@@ -510,7 +510,7 @@ vnet_restore_init(void *start, size_t size)
  * and VNET_SYSUNINIT().
  */
 void
-vnet_register_sysinit(void *arg)
+vnet_register_sysinit(void *arg) __nosanitizekcfi
 {
 	struct vnet_sysinit *vs, *vs2;
 	struct vnet *vnet;

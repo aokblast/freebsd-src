@@ -1114,8 +1114,8 @@ cleanup:
  * is called from the MD fork_trampoline() entry point.
  */
 void
-fork_exit(void (*callout)(void *, struct trapframe *), void *arg,
-    struct trapframe *frame)
+fork_exit(void (*callout)(struct thread *, struct trapframe *), void *arg,
+    struct trapframe *frame) __nosanitizekcfi
 {
 	struct proc *p;
 	struct thread *td;

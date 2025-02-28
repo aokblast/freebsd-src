@@ -253,7 +253,7 @@ symbol_name(vm_offset_t va, db_strategy_t strategy)
  * module.  Finally, it allows for optional "kernel threads".
  */
 void
-mi_startup(void)
+mi_startup(void) __nosanitizekcfi
 {
 	struct sysinit *sip;
 	int last;

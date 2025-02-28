@@ -100,7 +100,7 @@ sscanf(const char *ibuf, const char *fmt, ...)
 }
 
 int
-vsscanf(const char *inp, char const *fmt0, va_list ap)
+vsscanf(const char *inp, char const *fmt0, va_list ap) __nosanitizekcfi
 {
 	int inr;
 	const u_char *fmt = (const u_char *)fmt0;
