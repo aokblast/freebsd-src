@@ -673,6 +673,8 @@ linker_make_file(const char *pathname, linker_class_t lc)
 	lf->exidx_addr = 0;
 	lf->exidx_size = 0;
 #endif
+	lf->kcfi_traps_addr = 0;
+	lf->kcfi_traps_size = 0;
 	STAILQ_INIT(&lf->common);
 	TAILQ_INIT(&lf->modules);
 	TAILQ_INSERT_TAIL(&linker_files, lf, link);

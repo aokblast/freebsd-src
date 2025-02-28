@@ -398,6 +398,12 @@ preload_modinfo_type(struct sbuf *sbp, int type)
 	case MODINFOMD_KEYBUF:
 		sbuf_cat(sbp, "MODINFOMD_KEYBUF");
 		break;
+	case MODINFOMD_CFI_ADDR:
+		sbuf_cat(sbp, "MODINFOMD_CFI_ADDR");
+		break;
+	case MODINFOMD_CFI_SIZE:
+		sbuf_cat(sbp, "MODINFOMD_CFI_SIZE");
+		break;
 #ifdef MODINFOMD_SMAP
 	case MODINFOMD_SMAP:
 		sbuf_cat(sbp, "MODINFOMD_SMAP");
@@ -473,6 +479,7 @@ preload_modinfo_value(struct sbuf *sbp, uint32_t *bptr, int type, int len)
 		break;
 	case MODINFO_SIZE:
 	case MODINFO_METADATA | MODINFOMD_CTORS_SIZE:
+	case MODINFO_METADATA | MODINFOMD_CFI_SIZE:
 		sbuf_printf(sbp, "%lu", *(u_long *)bptr);
 		break;
 	case MODINFO_ADDR:
@@ -482,6 +489,7 @@ preload_modinfo_value(struct sbuf *sbp, uint32_t *bptr, int type, int len)
 	case MODINFO_METADATA | MODINFOMD_KERNEND:
 	case MODINFO_METADATA | MODINFOMD_ENVP:
 	case MODINFO_METADATA | MODINFOMD_CTORS_ADDR:
+	case MODINFO_METADATA | MODINFOMD_CFI_ADDR:
 #ifdef MODINFOMD_SMAP
 	case MODINFO_METADATA | MODINFOMD_SMAP:
 #endif

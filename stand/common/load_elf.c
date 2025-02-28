@@ -543,6 +543,7 @@ __elfN(loadimage)(struct preloaded_file *fp, elf_file_t ef, uint64_t off)
 	Elf_Dyn		*dp;
 	Elf_Addr	adp;
 	Elf_Addr	ctors;
+	Elf_Addr	kcfi;
 	int		ndp;
 	int		symstrindex;
 	int		symtabindex;
@@ -729,16 +730,26 @@ __elfN(loadimage)(struct preloaded_file *fp, elf_file_t ef, uint64_t off)
 		    shdr[ehdr->e_shstrndx].sh_offset, chunk);
 		if (shstr) {
 			for (i = 0; i < ehdr->e_shnum; i++) {
-				if (strcmp(shstr + shdr[i].sh_name,
-				    ".ctors") != 0)
-					continue;
-				ctors = shdr[i].sh_addr;
-				file_addmetadata(fp, MODINFOMD_CTORS_ADDR,
-				    sizeof(ctors), &ctors);
-				size = shdr[i].sh_size;
-				file_addmetadata(fp, MODINFOMD_CTORS_SIZE,
-				    sizeof(size), &size);
-				break;
+				if (strcmp(shstr + shdr[i].sh_name, ".ctors") ==
+				    0) {
+					ctors = shdr[i].sh_addr;
+					file_addmetadata(fp,
+					    MODINFOMD_CTORS_ADDR, sizeof(ctors),
+					    &ctors);
+					size = shdr[i].sh_size;
+					file_addmetadata(fp,
+					    MODINFOMD_CTORS_SIZE, sizeof(size),
+					    &size);
+				}
+				else if (strcmp(shstr + shdr[i].sh_name,
+				    ".kcfi_traps") == 0) {
+					kcfi = shdr[i].sh_addr;
+					file_addmetadata(fp, MODINFOMD_CFI_ADDR,
+					    sizeof(kcfi), &kcfi);
+					size = shdr[i].sh_size;
+					file_addmetadata(fp, MODINFOMD_CFI_SIZE,
+					    sizeof(size), &size);
+				}
 			}
 			free(shstr);
 		}

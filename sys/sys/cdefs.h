@@ -772,6 +772,11 @@
 #else
 #define	__nosanitizethread
 #endif
+#if __has_feature(kcfi) && defined(__clang__)
+#define __nosanitizekcfi __attribute__((no_sanitize("kcfi")))
+#else
+#define __nosanitizekcfi
+#endif
 
 /*
  * Make it possible to opt out of stack smashing protection.

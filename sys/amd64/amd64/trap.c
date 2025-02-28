@@ -442,6 +442,14 @@ trap(struct trapframe *frame)
 			(void)trap_pfault(frame, false, NULL, NULL);
 			return;
 
+		case T_PRIVINFLT:
+/* Triggered by ud2 with kCFI enabled */
+#ifdef KCFI
+			if (cfi_handler(frame))
+				return;
+#endif
+			break;
+
 		case T_DNA:
 			if (PCB_USER_FPU(td->td_pcb))
 				panic("Unregistered use of FPU in kernel");

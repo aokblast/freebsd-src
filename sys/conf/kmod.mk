@@ -406,6 +406,7 @@ ${_src}:
 .endfor
 .endif
 
+KCFI_ENABLED=	${KERN_OPTS:MKCFI}
 KASAN_ENABLED=	${KERN_OPTS:MKASAN}
 KCSAN_ENABLED=	${KERN_OPTS:MKCSAN}
 KMSAN_ENABLED=	${KERN_OPTS:MKMSAN}
@@ -435,6 +436,10 @@ vnode_if_typedef.h:
 	${AWK} -f ${SYSDIR}/tools/vnode_if.awk ${SYSDIR}/kern/vnode_if.src -q
 .endif
 
+.if !empty(KCFI_ENABLED)
+MAKEOBJOPT=	"-s"
+.endif
+
 # Build _if.[ch] from _if.m, and clean them when we're done.
 # __MPATH defined in config.mk
 _MFILES=${__MPATH:T:O}
@@ -448,7 +453,7 @@ CLEANFILES+=	${_i}
 .endif
 .endfor # _i
 .m.c:	${SYSDIR}/tools/makeobjops.awk
-	${AWK} -f ${SYSDIR}/tools/makeobjops.awk ${.IMPSRC} -c
+	${AWK} -f ${SYSDIR}/tools/makeobjops.awk ${.IMPSRC} -c ${MAKEOBJOPT}
 
 .m.h:	${SYSDIR}/tools/makeobjops.awk
 	${AWK} -f ${SYSDIR}/tools/makeobjops.awk ${.IMPSRC} -h

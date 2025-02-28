@@ -248,6 +248,7 @@ ZSTDIO		opt_zstdio.h
 COVERAGE	opt_global.h
 KASAN		opt_global.h
 KCOV
+KCFI		opt_global.h
 KCSAN		opt_global.h
 KMSAN		opt_global.h
 KUBSAN		opt_global.h

@@ -37,6 +37,10 @@ MKMODULESENV+=	WITH_CTF="${WITH_CTF}"
 MKMODULESENV+=	KCSAN_ENABLED="yes"
 .endif
 
+.if !empty(KCFI_ENABLED)
+MKMODULESENV+=	KCFI_ENABLED="yes"
+.endif
+
 .if defined(GCOV_CFLAGS)
 MKMODULESENV+=	GCOV_CFLAGS="${GCOV_CFLAGS}"
 .endif
@@ -210,11 +214,15 @@ ${FULLKERNEL}: ${SYSTEM_DEP} vers.o
 OBJS_DEPEND_GUESS+=	offset.inc assym.inc vnode_if.h ${BEFORE_DEPEND:M*.h} \
 			${MFILES:T:S/.m$/.h/}
 
+.if !empty(KCFI_ENABLED)
+MAKEOBJOPT=	"-s"
+.endif
+
 .for mfile in ${MFILES}
 # XXX the low quality .m.o rules gnerated by config are normally used
 # instead of the .m.c rules here.
-${mfile:T:S/.m$/.c/}: ${mfile}
-	${AWK} -f $S/tools/makeobjops.awk ${mfile} -c
+${mfile:T:S/.m$/.c/}: ${mfile} $S/tools/makeobjops.awk
+	${AWK} -f $S/tools/makeobjops.awk ${mfile} -c ${MAKEOBJOPT}
 ${mfile:T:S/.m$/.h/}: ${mfile}
 	${AWK} -f $S/tools/makeobjops.awk ${mfile} -h
 .endfor

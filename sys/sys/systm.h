@@ -589,6 +589,15 @@ void _gone_in_dev(device_t dev, int major, const char *msg);
 #define	__witness_used	__unused
 #endif
 
+#ifdef KCFI
+
+bool cfi_handler(struct trapframe *);
+bool decode_cfi_frame(struct trapframe *, uintptr_t *, uint32_t *);
+void post_cfi(struct trapframe *);
+
+#endif
+
+
 #endif /* _KERNEL */
 
 __NULLABILITY_PRAGMA_POP
