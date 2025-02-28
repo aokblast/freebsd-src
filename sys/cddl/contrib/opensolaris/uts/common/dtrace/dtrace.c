@@ -346,20 +346,31 @@ static dtrace_pattr_t	dtrace_provider_attr = {
 };
 
 static void
-dtrace_nullop(void)
-{}
+dtrace_provide_handler(void *ctx __unused, dtrace_probedesc_t *desc __unused)
+{
+}
+
+static void
+dtrace_provide_module_handler(void *ctx __unused, modctl_t *ctl __unused)
+{
+}
+
+static void
+dtrace_generic_handler(void *ctx _unused, dtrace_id_t id __unused, void *sc __unused)
+{
+}
 
 static dtrace_pops_t dtrace_provider_ops = {
-	.dtps_provide =	(void (*)(void *, dtrace_probedesc_t *))dtrace_nullop,
-	.dtps_provide_module =	(void (*)(void *, modctl_t *))dtrace_nullop,
-	.dtps_enable =	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
-	.dtps_disable =	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
-	.dtps_suspend =	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
-	.dtps_resume =	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
-	.dtps_getargdesc =	NULL,
-	.dtps_getargval =	NULL,
-	.dtps_usermode =	NULL,
-	.dtps_destroy =	(void (*)(void *, dtrace_id_t, void *))dtrace_nullop,
+	.dtps_provide = dtrace_provide_handler,
+	.dtps_provide_module = dtrace_provide_module_handler,
+	.dtps_enable = dtrace_generic_cb,
+	.dtps_disable = dtrace_generic_cb,
+	.dtps_suspend = dtrace_generic_cb,
+	.dtps_resume = dtrace_generic_cb,
+	.dtps_getargdesc = NULL,
+	.dtps_getargval = NULL,
+	.dtps_usermode = NULL,
+	.dtps_destroy = dtrace_generic_cb,
 };
 
 static dtrace_id_t	dtrace_probeid_begin;	/* special BEGIN probe */
@@ -8784,22 +8795,19 @@ dtrace_register(const char *name, const dtrace_pattr_t *pap, uint32_t priv,
 
 	if (pops->dtps_provide == NULL) {
 		ASSERT(pops->dtps_provide_module != NULL);
-		provider->dtpv_pops.dtps_provide =
-		    (void (*)(void *, dtrace_probedesc_t *))dtrace_nullop;
+		provider->dtpv_pops.dtps_provide = dtrace_provide_handler;
 	}
 
 	if (pops->dtps_provide_module == NULL) {
 		ASSERT(pops->dtps_provide != NULL);
 		provider->dtpv_pops.dtps_provide_module =
-		    (void (*)(void *, modctl_t *))dtrace_nullop;
+		    dtrace_provide_module_handler;
 	}
 
 	if (pops->dtps_suspend == NULL) {
 		ASSERT(pops->dtps_resume == NULL);
-		provider->dtpv_pops.dtps_suspend =
-		    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop;
-		provider->dtpv_pops.dtps_resume =
-		    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop;
+		provider->dtpv_pops.dtps_suspend = dtrace_vpdtid_vp_handler;
+		provider->dtpv_pops.dtps_resume = dtrace_vpdtid_vp_handler;
 	}
 
 	provider->dtpv_arg = arg;
@@ -8866,8 +8874,7 @@ dtrace_unregister(dtrace_provider_id_t id)
 	int i, self = 0, noreap = 0;
 	dtrace_probe_t *probe, *first = NULL;
 
-	if (old->dtpv_pops.dtps_enable ==
-	    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop) {
+	if (old->dtpv_pops.dtps_enable == dtrace_vpdtid_vp_handler) {
 		/*
 		 * If DTrace itself is the provider, we're called with locks
 		 * already held.
@@ -9045,8 +9052,7 @@ dtrace_invalidate(dtrace_provider_id_t id)
 {
 	dtrace_provider_t *pvp = (dtrace_provider_t *)id;
 
-	ASSERT(pvp->dtpv_pops.dtps_enable !=
-	    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop);
+	ASSERT(pvp->dtpv_pops.dtps_enable != dtrace_vpdtid_vp_handler);
 
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
@@ -9086,8 +9092,7 @@ dtrace_condense(dtrace_provider_id_t id)
 	/*
 	 * Make sure this isn't the dtrace provider itself.
 	 */
-	ASSERT(prov->dtpv_pops.dtps_enable !=
-	    (void (*)(void *, dtrace_id_t, void *))dtrace_nullop);
+	ASSERT(prov->dtpv_pops.dtps_enable != dtrace_vpdtid_vp_handler);
 
 	mutex_enter(&dtrace_provider_lock);
 	mutex_enter(&dtrace_lock);
