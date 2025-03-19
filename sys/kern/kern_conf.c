@@ -257,41 +257,47 @@ dev_relthread(struct cdev *dev, int ref)
 	atomic_subtract_rel_long(&dev->si_threadcount, 1);
 }
 
-int
-nullop(void)
-{
+#define DEFINE_ENXIO_HANDLER(name, ...) \
+	static int name(__VA_ARGS__)    \
+	{                               \
+		return (ENXIO);         \
+	}
 
-	return (0);
-}
+#define DEFINE_ENODEV_HANDLER(name, ...) \
+	static int name(__VA_ARGS__)     \
+	{                                \
+		return (ENODEV);         \
+	}
 
-int
-eopnotsupp(void)
-{
+#define DEFINE_NULLOP_HANDLER(name, ...) \
+	static int name(__VA_ARGS__)     \
+	{                                \
+		return (0);              \
+	}
 
-	return (EOPNOTSUPP);
-}
-
-static int
-enxio(void)
-{
-	return (ENXIO);
-}
-
-static int
-enodev(void)
-{
-	return (ENODEV);
-}
-
+DEFINE_ENXIO_HANDLER(dead_open_handler, struct cdev *dev, int oflags,
+    int devtype, struct thread *td);
+DEFINE_ENXIO_HANDLER(dead_close_handler, struct cdev *dev, int fflag,
+    int devtype, struct thread *td);
+DEFINE_ENXIO_HANDLER(dead_read_handler, struct cdev *dev, struct uio *uio,
+    int ioflag);
+DEFINE_ENXIO_HANDLER(dead_write_handler, struct cdev *dev, struct uio *uio,
+    int ioflag);
+DEFINE_ENXIO_HANDLER(dead_ioctl_handler, struct cdev *dev, u_long cmd,
+    caddr_t data, int fflag, struct thread *td);
+DEFINE_ENODEV_HANDLER(dead_poll_handler, struct cdev *dev, int events,
+    struct thread *td);
+DEFINE_ENODEV_HANDLER(dead_mmap_handler, struct cdev *dev, vm_ooffset_t offset,
+    vm_paddr_t *paddr, int nprot, vm_memattr_t *memattr);
 /* Define a dead_cdevsw for use when devices leave unexpectedly. */
 
-#define dead_open	(d_open_t *)enxio
-#define dead_close	(d_close_t *)enxio
-#define dead_read	(d_read_t *)enxio
-#define dead_write	(d_write_t *)enxio
-#define dead_ioctl	(d_ioctl_t *)enxio
-#define dead_poll	(d_poll_t *)enodev
-#define dead_mmap	(d_mmap_t *)enodev
+#define dead_open  dead_open_handler
+#define dead_close dead_close_handler
+#define dead_read  dead_read_handler
+#define dead_write dead_write_handler
+#define dead_ioctl dead_ioctl_handler
+#define dead_poll  dead_poll_handler
+#define dead_mmap  dead_mmap_handler
 
 static void
 dead_strategy(struct bio *bp)
@@ -300,8 +306,12 @@ dead_strategy(struct bio *bp)
 	biofinish(bp, NULL, ENXIO);
 }
 
-#define dead_kqfilter	(d_kqfilter_t *)enxio
-#define dead_mmap_single (d_mmap_single_t *)enodev
+DEFINE_ENXIO_HANDLER(dead_kqfilter_handler, struct cdev *dev, struct knote *kn);
+DEFINE_ENODEV_HANDLER(dead_mmap_single_handler, struct cdev *cdev,
+    vm_ooffset_t *offset, vm_size_t size, struct vm_object **object, int nprot);
+
+#define dead_kqfilter	 dead_kqfilter_handler
+#define dead_mmap_single dead_mmap_single_handler
 
 static struct cdevsw dead_cdevsw = {
 	.d_version =	D_VERSION,
@@ -320,14 +330,26 @@ static struct cdevsw dead_cdevsw = {
 
 /* Default methods if driver does not specify method */
 
-#define null_open	(d_open_t *)nullop
-#define null_close	(d_close_t *)nullop
-#define no_read		(d_read_t *)enodev
-#define no_write	(d_write_t *)enodev
-#define no_ioctl	(d_ioctl_t *)enodev
-#define no_mmap		(d_mmap_t *)enodev
-#define no_kqfilter	(d_kqfilter_t *)enodev
-#define no_mmap_single	(d_mmap_single_t *)enodev
+DEFINE_NULLOP_HANDLER(no_open_handler, struct cdev *dev, int oflags,
+    int devtype, struct thread *td);
+DEFINE_NULLOP_HANDLER(no_close_handler, struct cdev *dev, int fflag,
+    int devtype, struct thread *td);
+DEFINE_ENODEV_HANDLER(no_read_handler, struct cdev *dev, struct uio *uio,
+    int ioflag);
+DEFINE_ENODEV_HANDLER(no_write_handler, struct cdev *dev, struct uio *uio,
+    int ioflag);
+DEFINE_ENODEV_HANDLER(no_ioctl_handler, struct cdev *dev, u_long cmd,
+    caddr_t data, int fflag, struct thread *td);
+DEFINE_ENODEV_HANDLER(no_kqfilter_handler, struct cdev *dev, struct knote *kn);
+
+#define null_open      (d_open_t *)no_open_handler
+#define null_close     (d_close_t *)no_close_handler
+#define no_read	       (d_read_t *)no_read_handler
+#define no_write       (d_write_t *)no_write_handler
+#define no_ioctl       (d_ioctl_t *)no_ioctl_handler
+#define no_mmap	       (d_mmap_t *)dead_mmap_handler
+#define no_kqfilter    (d_kqfilter_t *)no_kqfilter_handler
+#define no_mmap_single (d_mmap_single_t *)dead_mmap_single_handler
 
 static void
 no_strategy(struct bio *bp)
