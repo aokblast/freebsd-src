@@ -98,6 +98,7 @@ u_int	amd_feature;		/* AMD feature flags */
 u_int	amd_feature2;		/* AMD feature flags */
 u_int	amd_rascap;		/* AMD RAS capabilities */
 u_int	amd_pminfo;		/* AMD advanced power management info */
+u_int	amd_pwrsamplerate;
 u_int	amd_extended_feature_extensions;
 u_int	via_feature_rng;	/* VIA RNG features */
 u_int	via_feature_xcrypt;	/* VIA ACE features */
@@ -1690,6 +1691,7 @@ finishidentcpu(void)
 	if (cpu_exthigh >= 0x80000007) {
 		do_cpuid(0x80000007, regs);
 		amd_rascap = regs[1];
+		amd_pwrsamplerate = regs[2] & 0xffffffff;
 		amd_pminfo = regs[3];
 	}
 	if (cpu_exthigh >= 0x80000008) {
