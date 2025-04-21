@@ -315,6 +315,7 @@ main(int argc, char *argv[])
 	const struct rtlbt_id_table *ic;
 	uint8_t rom_version;
 	struct rtlbt_firmware fw, cfg;
+	struct rtlbt_sec_proj_rp sec_proj;
 	enum rtlbt_fw_type fw_type;
 	uint16_t fw_lmp_subversion;
 
@@ -448,7 +449,20 @@ main(int argc, char *argv[])
 		rtlbt_debug("rom_version = %d", rom_version);
 
 		/* Load in the firmware */
-		r = rtlbt_parse_fwfile_v1(&fw, rom_version);
+		if (fw_type == RTLBT_FW_TYPE_V1)
+			r = rtlbt_parse_fwfile_v1(&fw, rom_version);
+		else {
+#ifdef RTLBTFW_SUPPORTS_FW_V2 
+			if (rtlbt_read_sec_proj(hdl, &sec_proj)) {
+				rtlbt_err("unable to read sec proj");
+				goto shutdown;
+			}
+			r = rtlbt_parse_fwfile_v2(&fw, rom_version, sec_proj.key[0]);
+#else
+			rtlbt_error("Unsupported device");	
+#endif
+		}
+
 		if (r < 0) {
 			rtlbt_err("Parseing firmware file failed");
 			goto shutdown;

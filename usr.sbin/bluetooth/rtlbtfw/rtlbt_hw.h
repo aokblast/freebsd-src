@@ -28,6 +28,8 @@
 #ifndef	__RTLBT_HW_H__
 #define	__RTLBT_HW_H__
 
+#include <stdint.h>
+#include <libusb.h>
 #include <netgraph/bluetooth/include/ng_hci.h>
 
 /* USB control request (HCI command) structure */
@@ -85,6 +87,11 @@ struct rtlbt_rom_ver_rp {
 	uint8_t version;
 } __attribute__ ((packed));
 
+struct rtlbt_sec_proj_rp {
+	uint8_t check;
+	uint8_t key[2];
+} __attribute__ ((packed));
+
 struct rtlbt_hci_dl_cmd {
         uint8_t index;
         uint8_t data[RTLBT_MAX_CMD_DATA_LEN];
@@ -95,6 +102,8 @@ struct rtlbt_hci_dl_rp {
         uint8_t index;
 } __attribute__ ((packed));
 
+int	rtlbt_read_sec_proj(struct libusb_device_handle *hdl,
+	    struct rtlbt_sec_proj_rp *ver);
 int	rtlbt_read_local_ver(struct libusb_device_handle *hdl,
 	    ng_hci_read_local_ver_rp *ver);
 int	rtlbt_read_rom_ver(struct libusb_device_handle *hdl, uint8_t *ver);

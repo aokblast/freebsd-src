@@ -27,8 +27,10 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/cdefs.h>
 #include <sys/param.h>
 #include <sys/endian.h>
+#include <sys/queue.h>
 #include <sys/stat.h>
 
 #include <err.h>
@@ -41,6 +43,7 @@
 
 #include "rtlbt_fw.h"
 #include "rtlbt_dbg.h"
+#include "rtlbt_hw.h"
 
 static const struct rtlbt_id_table rtlbt_ic_id_table[] = {
 	{ /* 8723A */
@@ -360,6 +363,157 @@ rtlbt_parse_fwfile_v1(struct rtlbt_firmware *fw, uint8_t rom_version)
 	memcpy(patch_buf, fw->buf + patch_offset, patch_length - 4);
 	memcpy(patch_buf + patch_length - 4, &fw_header->fw_version, 4);
 
+	free(fw->buf);
+	fw->buf = patch_buf;
+	fw->len = patch_length;
+
+	return (0);
+}
+
+static void
+rtlbt_insert_section(struct rtlbt_subsection_listhead *head, struct rtlbt_subsection *subsec)
+{
+	struct rtlbt_subsection *cur, *tmp;
+
+	LIST_FOREACH_SAFE(cur, head, entries, tmp) {
+		if (cur->prio <= subsec->prio)
+			continue;
+		LIST_INSERT_BEFORE(cur, subsec, entries);
+		break;
+	}
+}
+
+static void
+rtlbt_free_sections(struct rtlbt_subsection_listhead *head)
+{
+	struct rtlbt_subsection *cur, *tmp;
+
+	LIST_FOREACH_SAFE(cur, head, entries, tmp) {
+		LIST_REMOVE(cur, entries);
+		free(cur);
+	}
+}
+
+__always_inline static int
+rtlbt_prase_fwfile_section(struct rtlbt_subsection_listhead *head,
+			   uint8_t *data, size_t len, uint8_t opcode,
+			   uint8_t rom_version, uint8_t key)
+{
+	struct rtlbt_section_header *hdr;
+	struct rtlbt_subsection_header *subsec_hdr;
+	struct rtlbt_subsection *subsection;
+	uint16_t num_subsections;
+	uint32_t subsection_length;
+	uint8_t *data_base;
+	int ret = 0;
+	int i;
+
+	if (len < sizeof(struct rtlbt_section_header))
+		return (-1);
+	hdr = (struct rtlbt_section_header *) data;
+	num_subsections = le16toh(hdr->num);
+
+	if (len < (sizeof(struct rtlbt_section_header) +
+		   num_subsections * sizeof(struct rtlbt_subsection_header)))
+		return (-1);
+
+	data_base = data + sizeof(struct rtlbt_section_header);
+
+	for (i = 0; i < num_subsections && (data_base - data) < (long)len; ++i) {
+		subsec_hdr = (struct rtlbt_subsection_header *) data_base;
+		subsection_length = le32toh(subsec_hdr->len);
+		rtlbt_debug("subsection, length %08x", subsection_length);
+		if (subsec_hdr->eco != (rom_version + 1))
+			continue;
+		if (opcode == RTL_PATCH_SECURITY_HEADER) {
+			if(subsec_hdr->key_id != key)
+				continue;
+			break;
+		}
+		subsection = malloc(sizeof(struct rtlbt_subsection));
+		subsection->data = data_base + sizeof(struct rtlbt_subsection_header);
+		subsection->len = subsection_length;
+		subsection->prio = subsec_hdr->prio;
+		rtlbt_insert_section(head, subsection);
+		data_base += sizeof(struct rtlbt_subsection_header) + subsection_length;
+		ret += subsection_length;
+	}
+	if ((data_base - data) >= (long)len)
+		return (-1);
+
+	return (ret);
+}
+
+int
+rtlbt_parse_fwfile_v2(struct rtlbt_firmware *fw, uint8_t rom_version, uint8_t key)
+{
+	struct rtlbt_fw_header_v2 *fw_header;
+	struct rtlbt_section *section;
+	struct rtlbt_subsection_listhead head = LIST_HEAD_INITIALIZER(head);
+	struct rtlbt_subsection *subsec;
+	uint8_t *patch_buf, *patch_cur;
+	unsigned int i;
+	uint8_t *chip_data_base;
+	uint32_t num_sections;
+	uint32_t section_length;
+	uint32_t opcode;
+	uint32_t patch_length = 0, ret;
+
+	fw_header = (struct rtlbt_fw_header_v2 *)fw->buf;
+	num_sections = le32toh(fw_header->num_sections);
+	rtlbt_debug("fw_version=%lx, num_sections=%d,key=%x",
+	       le64toh(fw_header->fw_version), num_sections
+		    , key);
+
+	/* Find a right patch for the chip. */
+	if (fw->len < sizeof(struct rtlbt_fw_header_v2) +
+	    sizeof(fw_ext_sig) + sizeof(struct rtlbt_section) * num_sections) {
+		errno = EINVAL;
+		return (-1);
+	}
+
+	chip_data_base = fw->buf + sizeof(struct rtlbt_fw_header_v2);
+	for (i = 0; i < num_sections; i++) {
+		section = (struct rtlbt_section *)chip_data_base;
+		section_length = le32toh(section->len);
+		opcode = le32toh(section->opcode);
+		ret = rtlbt_prase_fwfile_section(&head, chip_data_base +
+		   sizeof(struct rtlbt_section), section_length,
+		   opcode, rom_version, key);
+		if (ret < 0) {
+			rtlbt_debug("failed on parsing section %x: %d",
+				    opcode, ret);
+			rtlbt_free_sections(&head);
+			errno = EINVAL;
+			return (-1);
+		}
+		patch_length += ret;
+		chip_data_base += sizeof(struct rtlbt_section) + section_length;
+	}
+
+	if (fw->len <= (size_t)(chip_data_base - fw->buf)) {
+		errno = EINVAL;
+		rtlbt_free_sections(&head);
+		return (-1);
+	}
+	if (patch_length == 0) {
+		rtlbt_err("can not find patch for chip id %d", rom_version);
+		errno = EINVAL;
+		return (-1);
+	}
+
+	patch_cur = patch_buf = malloc(patch_length);
+	if (patch_buf == NULL) {
+		errno = ENOMEM;
+		return (-1);
+	}
+
+	LIST_FOREACH(subsec, &head, entries) {
+		memcpy(patch_cur, subsec->data, subsec->len);
+		patch_cur += subsec->len;
+	}
+
+	rtlbt_free_sections(&head);
 	free(fw->buf);
 	fw->buf = patch_buf;
 	fw->len = patch_length;

@@ -30,7 +30,9 @@
 #ifndef	__RTLBT_FW_H__
 #define	__RTLBT_FW_H__
 
+#include <stdint.h>
 #include <stdbool.h>
+#include <sys/queue.h>
 
 #define	RTLBT_ROM_LMP_8703B	0x8703
 #define	RTLBT_ROM_LMP_8723A	0x1200
@@ -40,6 +42,10 @@
 #define	RTLBT_ROM_LMP_8822B	0x8822
 #define	RTLBT_ROM_LMP_8852A	0x8852
 #define	RTLBT_ROM_LMP_8851B	0x8851
+
+#define RTL_PATCH_SNIPPETS		0x01
+#define RTL_PATCH_DUMMY_HEADER		0x02
+#define RTL_PATCH_SECURITY_HEADER	0x03
 
 enum rtlbt_fw_type {
 	RTLBT_FW_TYPE_UNKNOWN,
@@ -78,6 +84,38 @@ struct rtlbt_fw_header_v2 {
 	uint32_t num_sections;
 } __attribute__ ((packed));
 
+struct rtlbt_section_header {
+	uint16_t num;
+	uint16_t reserved;
+} __attribute__ ((packed));
+
+struct rtlbt_section {
+	uint32_t opcode;
+	uint32_t len;
+	uint8_t data[];
+} __attribute__ ((packed));
+
+struct rtlbt_subsection_header {
+	uint8_t eco;
+	uint8_t prio;
+	union {
+		uint8_t sectype_data[2];
+		uint8_t key_id;
+	};
+	uint32_t len;
+	uint8_t data[];
+} __attribute__((packed));
+
+
+struct rtlbt_subsection {
+	LIST_ENTRY(rtlbt_subsection) entries;
+	uint8_t prio;
+	uint32_t len;
+	uint8_t *data;
+};
+
+LIST_HEAD(rtlbt_subsection_listhead, rtlbt_subsection);
+
 int rtlbt_fw_read(struct rtlbt_firmware *fw, const char *fwname);
 void rtlbt_fw_free(struct rtlbt_firmware *fw);
 char *rtlbt_get_fwname(const char *fw_name, const char *prefix,
@@ -87,6 +125,7 @@ const struct rtlbt_id_table *rtlbt_get_ic(uint16_t lmp_subversion,
 enum rtlbt_fw_type rtlbt_get_fw_type(struct rtlbt_firmware *fw,
     uint16_t *fw_lmp_subversion);
 int rtlbt_parse_fwfile_v1(struct rtlbt_firmware *fw, uint8_t rom_version);
+int rtlbt_parse_fwfile_v2(struct rtlbt_firmware *fw, uint8_t rom_version, uint8_t key);
 int rtlbt_append_fwfile(struct rtlbt_firmware *fw, struct rtlbt_firmware *opt);
 
 #endif

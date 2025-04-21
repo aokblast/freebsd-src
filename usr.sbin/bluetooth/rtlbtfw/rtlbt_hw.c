@@ -110,6 +110,42 @@ rtlbt_hci_command(struct libusb_device_handle *hdl, struct rtlbt_hci_cmd *cmd,
 	return (LIBUSB_ERROR_TIMEOUT);
 }
 
+
+int
+rtlbt_read_sec_proj(struct libusb_device_handle *hdl,
+    struct rtlbt_sec_proj_rp *rp)
+{
+	int ret, transferred;
+	struct rtlbt_hci_event_cmd_compl *event;
+	static struct rtlbt_hci_cmd cmd = {
+		.opcode = htole16(0xfc61),
+		.length = 5,
+		.data = {0x10, 0xA4, 0x0D, 0x00, 0xb0},
+	};
+	uint8_t buf[RTLBT_HCI_EVT_COMPL_SIZE(struct rtlbt_sec_proj_rp)];
+
+	memset(buf, 0, sizeof(buf));
+
+	ret = rtlbt_hci_command(hdl,
+	    &cmd,
+	    buf,
+	    sizeof(buf),
+	    &transferred,
+	    RTLBT_HCI_CMD_TIMEOUT);
+
+	if (ret < 0 || transferred != sizeof(buf)) {
+		 rtlbt_debug("Can't read sec_proj key: code=%d, size=%d",
+		     ret,
+		     transferred);
+		 return (-1);
+	}
+
+	event = (struct rtlbt_hci_event_cmd_compl *)buf;
+	memcpy(rp->key, event->data, sizeof(struct rtlbt_sec_proj_rp));
+
+	return (0);
+}
+
 int
 rtlbt_read_local_ver(struct libusb_device_handle *hdl,
     ng_hci_read_local_ver_rp *ver)
