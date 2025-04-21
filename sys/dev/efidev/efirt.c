@@ -107,7 +107,8 @@ static int efi_status2err[25] = {
 
 enum efi_table_type {
 	TYPE_ESRT = 0,
-	TYPE_PROP
+	TYPE_PROP,
+	TYPE_MEMORY_ATTR
 };
 
 static int efi_enter(void);
@@ -445,6 +446,48 @@ get_table_length(enum efi_table_type type, size_t *table_len, void **taddr)
 		free(buf, M_TEMP);
 		return (0);
 	}
+	case TYPE_MEMORY_ATTR:
+	{
+		struct uuid uuid = EFI_MEMORY_ATTRIBUTES_TABLE;
+		struct efi_memory_attribute_table *tbl_addr, *mem_addr;
+		int error;
+		void *buf;
+		size_t len = sizeof(struct efi_memory_attribute_table);
+
+		error = efi_get_table(&uuid, (void **)&tbl_addr);
+		if (error)
+			return (error);
+
+		buf = malloc(len, M_TEMP, M_WAITOK);
+		if (buf == NULL)
+			return (ENOMEM);
+		error = physcopyout((vm_paddr_t)tbl_addr, buf, len);
+		if (error) {
+			free(buf, M_TEMP);
+			return (error);
+		}
+
+		mem_addr = (struct efi_memory_attribute_table *)buf;
+		len += mem_addr->descriptor_size;
+		if (mem_addr->version != 2) {
+			free(buf, M_TEMP);
+			return (EINVAL);
+		}
+		if (len > EFI_TABLE_ALLOC_MAX) {
+			free(buf, M_TEMP);
+			return (ENOMEM);
+		}
+
+		buf = reallocf(buf, len, M_TEMP, M_WAITOK);
+		if (buf == NULL)
+			return (ENOMEM);
+		error = physcopyout((vm_paddr_t)tbl_addr, buf, len);
+		*table_len = len;
+		if (taddr != NULL)
+			*taddr = tbl_addr;
+		free(buf, M_TEMP);
+		return (0);
+	}
 	}
 	return (ENOENT);
 }
@@ -456,8 +499,9 @@ copy_table(struct uuid *uuid, void **buf, size_t buf_len, size_t *table_len)
 		struct uuid uuid;
 		enum efi_table_type type;
 	} tables[] = {
-		{ EFI_TABLE_ESRT,       TYPE_ESRT },
-		{ EFI_PROPERTIES_TABLE, TYPE_PROP }
+		{ EFI_TABLE_ESRT,	TYPE_ESRT },
+		{ EFI_PROPERTIES_TABLE, TYPE_PROP },
+		{ EFI_MEMORY_ATTRIBUTES_TABLE, TYPE_MEMORY_ATTR }
 	};
 	size_t table_idx;
 	void *taddr;
