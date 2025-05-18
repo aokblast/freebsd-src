@@ -59,6 +59,7 @@
 #define	EOI_MASK			(1 << 29)
 #define	WAKE_INT_STATUS_REG0		0x2f8
 #define	WAKE_INT_STATUS_REG1		0x2fc
+#define	WAKE_INT_STATUS_MAX		0x46
 
 /* Bit definition of 32 bits of each pin register */
 #define	DB_TMR_OUT_OFF			0
@@ -307,6 +308,12 @@ static const struct amd_pingroup kernzp_groups[] = {
 #define	AMDGPIO_ASSERT_LOCKED(_sc)	mtx_assert(&(_sc)->sc_mtx, MA_OWNED)
 #define	AMDGPIO_ASSERT_UNLOCKED(_sc)	mtx_assert(&(_sc)->sc_mtx, MA_NOTOWNED)
 
+struct amdgpio_irqsrc {
+	struct intr_irqsrc  isrc;
+	int pin;
+	LIST_ENTRY(struct amdgpio_irqsrc)   next;
+};
+
 struct amdgpio_softc {
 	ACPI_HANDLE		sc_handle;
 	device_t		sc_dev;
@@ -322,6 +329,8 @@ struct amdgpio_softc {
 	struct gpio_pin		sc_gpio_pins[AMD_GPIO_PINS_MAX];
 	const struct pin_info	*sc_pin_info;
 	const struct amd_pingroup *sc_groups;
+	void    				*intr_handler;
+	LIST_HEAD(, amdgpio_irqsrc) handlers;
 };
 
 struct amdgpio_sysctl {

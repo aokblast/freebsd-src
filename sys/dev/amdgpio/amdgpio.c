@@ -34,11 +34,14 @@
 #include <sys/bus.h>
 #include <sys/gpio.h>
 #include <sys/interrupt.h>
+#include <sys/intr.h>
 #include <sys/kernel.h>
 #include <sys/lock.h>
+#include <sys/malloc.h>
 #include <sys/module.h>
 #include <sys/mutex.h>
 #include <sys/proc.h>
+#include <sys/queue.h>
 #include <sys/rman.h>
 #include <sys/sysctl.h>
 
@@ -52,10 +55,15 @@
 #include <dev/gpio/gpiobusvar.h>
 
 #include "gpio_if.h"
+
 #include "amdgpio.h"
 
-static struct resource_spec amdgpio_spec[] = {
+static void amdgpio_intr(void *arg)
+
+static struct resource_spec
+amdgpio_spec[] = {
 	{ SYS_RES_MEMORY, 0, RF_ACTIVE },
+	{ SYS_RES_IRQ, 0, RF_ACTIVE },
 	{ -1, 0, 0 }
 };
 
@@ -408,6 +416,10 @@ amdgpio_attach(device_t dev)
 		    GPIO_PIN_OUTPUT : GPIO_PIN_INPUT;
 	}
 
+	bus_setup_intr(dev, sc->sc_res[1],
+				   INTR_TYPE_CLK | INTR_MPSAFE, NULL, amdgpio_intr, sc,
+				   &sc->intr_handler);
+
 	sc->sc_busdev = gpiobus_attach_bus(dev);
 	if (sc->sc_busdev == NULL) {
 		device_printf(dev, "could not attach gpiobus\n");
@@ -433,7 +445,7 @@ amdgpio_detach(device_t dev)
 
 	if (sc->sc_busdev)
 		gpiobus_detach_bus(dev);
-
+	bus_teardown_intr(dev, sc->sc_res[1], &sc->intr_handler);
 	bus_release_resources(dev, amdgpio_spec, sc->sc_res);
 
 	AMDGPIO_LOCK_DESTROY(sc);
@@ -441,11 +453,329 @@ amdgpio_detach(device_t dev)
 	return (0);
 }
 
+/*
+ * Interrupts support
+ */
+
+static void
+amdgpio_pic_disable_intr_locked(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+	struct amdgpio_irqsrc *src;
+	uint32_t val;
+	sc = device_get_softc(dev);
+	src = (struct amdgpio_irqsrc *)isrc;
+
+	val = amdgpio_read_4(sc, AMDGPIO_PIN_REGISTER(src->pin));
+	val &= ~BIT(INTERRUPT_MASK_OFF);
+	amdgpio_write_4(sc, AMDGPIO_PIN_REGISTER(src->pin), val);
+}
+
+static void
+amdgpio_pic_enable_intr_lcoked(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+	struct amdgpio_irqsrc *src;
+	uint32_t val;
+	sc = device_get_softc(dev);
+	src = (struct amdgpio_irqsrc *)isrc;
+
+	val = amdgpio_read_4(sc, AMDGPIO_PIN_REGISTER(src->pin));
+	val |= BIT(INTERRUPT_MASK_OFF);
+	amdgpio_write_4(sc, AMDGPIO_PIN_REGISTER(src->pin), val);
+}
+
+static void amdgpio_pic_post_filter(device_t dev, struct intr_irqsrc *isrc);
+
+static void
+amdgpio_intr(void *arg)
+{
+	struct amdgpio_softc *sc;
+	struct amdgpio_irqsrc *gpio_irqsrc;
+	uint64_t status;
+	uint32_t reg;
+
+	sc = (struct amdgpio_softc *)arg;
+
+	AMDGPIO_LOCK(sc);
+	status = amdgpio_read_4(sc, WAKE_INT_STATUS_REG0);
+	status <<= 32;
+	status |= amdgpio_read_4(sc, WAKE_INT_STATUS_REG1);
+
+	status &= (1ULL << WAKE_INT_STATUS_MAX) - 1;
+
+	LIST_FOREACH(gpio_irqsrc, &sc->handlers, next) {
+		if ((status & (1 << (gpio_irqsrc->pin / 4))) == 0)
+			continue;
+		reg = amdgpio_read_4(sc, AMDGPIO_PIN_REGISTER(gpio_irqsrc->pin));
+		if ((reg & BIT(INTERRUPT_STS_OFF)) == 0 ||
+			(reg & BIT(INTERRUPT_MASK_OFF)) == 0)
+			continue;
+		if (intr_isrc_dispatch(&gpio_irqsrc->isrc, curthread->td_intr_frame) == 0)
+			continue;
+		amdgpio_pic_disable_intr_locked(sc->sc_dev, &gpio_irqsrc->isrc);
+		amdgpio_pic_post_filter(sc->sc_dev, &gpio_irqsrc->isrc);
+		device_printf(sc->sc_dev, "Start irq %u dsiabled\n", gpio_irqsrc->pin);
+	}
+
+	status = amdgpio_read_4(sc, WAKE_INT_MASTER_REG);
+	status |= BIT(EOI_MASK);
+	amdgpio_write_4(sc, WAKE_INT_MASTER_REG, status);
+	AMDGPIO_UNLOCK(sc);
+}
+
+static void
+amdgpio_pic_disable_intr(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+
+	sc = device_get_softc(dev);
+
+	AMDGPIO_LOCK(sc);
+	amdgpio_pic_disable_intr_locked(dev, isrc);
+	AMDGPIO_UNLOCK(sc);
+}
+
+static void
+amdgpio_pic_enable_intr(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+
+	sc = device_get_softc(dev);
+
+	AMDGPIO_LOCK(sc);
+	amdgpio_pic_enable_intr_lcoked(dev, isrc);
+	AMDGPIO_UNLOCK(sc);
+}
+
+static int
+amdgpio_pic_map_gpio(struct amdgpio_softc *sc, struct intr_map_data_gpio *dag,
+    u_int *irqp, u_int *mode)
+{
+	u_int irq;
+	int pin;
+
+	irq = dag->gpio_pin_num;
+
+	if (irq > sc->npins)
+		return (EINVAL);
+
+	switch (dag->gpio_intr_mode) {
+	case GPIO_INTR_LEVEL_LOW:
+	case GPIO_INTR_LEVEL_HIGH:
+	case GPIO_INTR_EDGE_RISING:
+	case GPIO_INTR_EDGE_FALLING:
+	case GPIO_INTR_EDGE_BOTH:
+		break;
+	default:
+		device_printf(sc->sc_dev, "Unsupported interrupt mode 0x%8x\n",
+		    dag->gpio_intr_mode);
+		return (EINVAL);
+	}
+
+	*irqp = pin;
+	if (mode != NULL)
+		*mode = dag->gpio_intr_mode;
+
+	return (0);
+}
+
+static int
+amdgpio_pic_map_intr(device_t dev, struct intr_map_data *data,
+    struct intr_irqsrc **isrcp)
+{
+	struct amdgpio_softc *sc;
+	struct amdgpio_irqsrc *gpio_isrc;
+	u_int irq;
+	int err;
+
+	sc = device_get_softc(dev);
+	switch (data->type) {
+	case INTR_MAP_DATA_GPIO:
+		err = amdgpio_pic_map_gpio(sc,
+		    (struct intr_map_data_gpio *)data,
+		  &irq, NULL);
+		break;
+	default:
+		return (ENOTSUP);
+	};
+
+	if (err != 0)
+		return (err);
+	AMDGPIO_LOCK(sc);
+	LIST_FOREACH(gpio_isrc, &sc->handlers, next) {
+		if (gpio_isrc->pin == irq) {
+			*isrcp = &gpio_isrc->isrc;
+			goto end;
+		}
+	}
+	gpio_isrc = malloc(sizeof(struct amdgpio_irqsrc), M_DEVBUF, M_WAITOK | M_ZERO);
+	if (gpio_isrc == NULL) {
+		AMDGPIO_UNLOCK(sc);
+		return (ENOMEM);
+	}
+	gpio_isrc->pin = irq;
+	LIST_INSERT_HEAD(sc->handlers, gpio_isrc, next);
+	*isrcp = &gpio_isrc->isrc;
+	err = intr_isrc_register(&gpio_isrc->isrc, sc->sc_dev, 0, "%s,%d", "gpio", irq);
+	if (err) {
+		device_printf(sc->sc_dev, "intr_isrs_register failed for irq %d\n", irq);
+	}
+end:
+	AMDGPIO_UNLOCK(sc);
+	return (0);
+}
+
+static int
+amdgpio_pic_setup_intr(device_t dev, struct intr_irqsrc *isrc,
+    struct resource *res __unused, struct intr_map_data *data)
+{
+	struct amdgpio_softc *sc;
+	struct amdgpio_irqsrc *src;
+	uint32_t irqcfg = 0;
+	uint32_t pinidx, reg;
+	u_int irq, mode;
+	int err;
+
+	sc = device_get_softc(dev);
+	src = (struct amdgpio_irqsrc *)isrc;
+
+	err = 0;
+	switch (data->type) {
+	case INTR_MAP_DATA_GPIO:
+		err = amdgpio_pic_map_gpio(sc,
+		    (struct intr_map_data_gpio *)data,
+		  &irq, &mode);
+		if (err != 0)
+			return (err);
+		break;
+	default:
+		return (ENOTSUP);
+	};
+
+	AMDGPIO_LOCK(sc);
+	reg = amdgpio_read_4(sc, AMDGPIO_PIN_REGISTER(irq));
+	switch (mode) {
+	case GPIO_INTR_LEVEL_LOW:
+		reg |= BIT(LEVEL_TRIG_OFF);
+		reg &= ACTIVE_LEVEL_MASK << ACTIVE_TRIG_OFF;
+		reg |= ACTIVE_LOW << ACTIVE_TRIG_OFF;
+		break;
+	case GPIO_INTR_LEVEL_HIGH:
+		reg |= BIT(LEVEL_TRIG_OFF);
+		reg &= ACTIVE_LEVEL_MASK << ACTIVE_TRIG_OFF;
+		reg |= ACTIVE_HIGH << ACTIVE_TRIG_OFF;
+		break;
+	case GPIO_INTR_EDGE_RISING:
+		reg &= ~BIT(LEVEL_TRIG_OFF);
+		reg &= ACTIVE_LEVEL_MASK << ACTIVE_TRIG_OFF;
+		reg |= ACTIVE_HIGH << ACTIVE_TRIG_OFF;
+		break;
+	case GPIO_INTR_EDGE_FALLING:
+		reg &= ~BIT(LEVEL_TRIG_OFF);
+		reg &= ACTIVE_LEVEL_MASK << ACTIVE_TRIG_OFF;
+		reg |= ACTIVE_LOW << ACTIVE_TRIG_OFF;
+		break;
+	case GPIO_INTR_EDGE_BOTH:
+		reg &= ~BIT(LEVEL_TRIG_OFF);
+		reg &= ACTIVE_LEVEL_MASK << ACTIVE_TRIG_OFF;
+		reg |= BOTH_TRIGGER << ACTIVE_TRIG_OFF;
+		break;
+	}
+	amdgpio_write_4(sc, AMDGPIO_PIN_REGISTER(irq), reg);
+	AMDGPIO_UNLOCK(sc);
+
+	return (0);
+}
+
+static int
+amdgpio_pic_teardown_intr(device_t dev, struct intr_irqsrc *isrc,
+    struct resource *res, struct intr_map_data *data)
+{
+	struct amdgpio_softc *sc;
+	struct gpio_irqsrc *gi;
+	struct amdgpio_irqsrc *src, *tmp;
+	bool found = false;
+
+	sc = device_get_softc(dev);
+	gi = (struct gpio_irqsrc *)isrc;
+
+	/* Switch back the pin to it's original function */
+	AMDGPIO_LOCK(sc);
+	LIST_FOREACH_SAFE(src, &sc->handlers, next, tmp) {
+		if (src == isrc) {
+			intr_isrc_deregister(isrc);
+			LIST_REMOVE(src, next);
+			free(isrc);
+			found = true;
+			break;
+		}
+	}
+	AMDGPIO_UNLOCK(sc);
+
+	return (found ? 0 : EINVAL);
+}
+
+static void
+amdgpio_remove_irq_stat(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+	struct amdgpio_irqsrc *gi;
+	uint32_t val;
+
+	sc = device_get_softc(dev);
+	gi = (struct amdgpio_irqsrc *)isrc;
+
+	IRQ_MEMORY_BARRIER(0);
+	val = amdgpio_read_4(sc, AMDGPIO_PIN_REGISTER(gi->pin));
+	val &= ~BIT(INTERRUPT_STS_OFF);
+	amdgpio_write_4(sc, AMDGPIO_PIN_REGISTER(gi->pin), val);
+}
+
+static void
+amdgpio_pic_post_filter(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+	sc = device_get_softc(dev);
+
+	amdgpio_remove_irq_stat(dev, isrc);
+}
+
+static void
+amdgpio_pic_post_ithread(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+	sc = device_get_softc(dev);
+
+	amdgpio_remove_irq_stat(dev, isrc);
+	amdgpio_pic_enable_intr_locked(dev, isrc);
+}
+
+static void
+aw_gpio_pic_pre_ithread(device_t dev, struct intr_irqsrc *isrc)
+{
+	struct amdgpio_softc *sc;
+	sc = device_get_softc(dev);
+
+	amdgpio_pic_disable_intr_locked(sc, isrc);
+}
+
+
 static device_method_t amdgpio_methods[] = {
 	/* Device interface */
 	DEVMETHOD(device_probe, amdgpio_probe),
 	DEVMETHOD(device_attach, amdgpio_attach),
 	DEVMETHOD(device_detach, amdgpio_detach),
+
+	/* Interrupt controller interface */
+	DEVMETHOD(pic_disable_intr,	amdgpio_pic_disable_intr),
+	DEVMETHOD(pic_enable_intr,	amdgpio_pic_enable_intr),
+	DEVMETHOD(pic_map_intr,		amdgpio_pic_map_intr),
+	DEVMETHOD(pic_setup_intr,	amdgpio_pic_setup_intr),
+	DEVMETHOD(pic_teardown_intr,	amdgpio_pic_teardown_intr),
+	DEVMETHOD(pic_post_filter,	amdgpio_pic_post_filter),
+	DEVMETHOD(pic_post_ithread,	amdgpio_pic_post_ithread),
+	DEVMETHOD(pic_pre_ithread,	amdgpio_pic_pre_ithread),
 
 	/* GPIO protocol */
 	DEVMETHOD(gpio_get_bus, amdgpio_get_bus),
