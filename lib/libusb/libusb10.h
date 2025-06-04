@@ -45,7 +45,7 @@
 #define	CTX_TRYLOCK(ctx) pthread_mutex_trylock(&(ctx)->ctx_lock)
 #define	CTX_UNLOCK(ctx) pthread_mutex_unlock(&(ctx)->ctx_lock)
 #define	HOTPLUG_LOCK(ctx) pthread_mutex_lock(&(ctx)->hotplug_lock)
-#define	HOTPLUG_UNLOCK(ctx) pthread_mutex_unlock(&(ctx)->hotplug_lock)
+#define HOTPLUG_UNLOCK(ctx) pthread_mutex_unlock(&(ctx)->hotplug_lock)
 
 void libusb_log_va_args(struct libusb_context *ctx, enum libusb_log_level level,
     const char *fmt, ...) __printflike(3, 4);

@@ -1865,12 +1865,12 @@ libusb_log_va_args(struct libusb_context *ctx, enum libusb_log_level level,
 		[LIBUSB_LOG_LEVEL_INFO] = "LIBUSB_INFO",
 		[LIBUSB_LOG_LEVEL_DEBUG] = "LIBUSB_DEBUG",
 	};
-
-	char buffer[LIBUSB_LOG_BUFFER_SIZE];
-	char new_fmt[LIBUSB_LOG_BUFFER_SIZE];
+	char buffer[1024];
+	char new_fmt[1024];
 	va_list args;
 
 	ctx = GET_CONTEXT(ctx);
+	va_start(args, fmt);
 
 	if (ctx->debug < level)
 		return;
