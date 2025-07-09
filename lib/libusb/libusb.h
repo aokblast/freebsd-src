@@ -296,11 +296,6 @@ struct libusb_transfer;
 struct libusb_device_handle;
 struct libusb_hotplug_callback_handle_struct;
 
-typedef struct libusb_context libusb_context;
-
-typedef void (*libusb_log_cb)(libusb_context *ctx, enum libusb_log_level,
-    const char *str);
-
 struct libusb_pollfd {
 	int	fd;
 	short	events;
@@ -323,6 +318,8 @@ struct libusb_init_option {
 };
 
 typedef struct libusb_context libusb_context;
+typedef void (*libusb_log_cb)(libusb_context *ctx, enum libusb_log_level,
+    const char *str);
 typedef struct libusb_device libusb_device;
 typedef struct libusb_device_handle libusb_device_handle;
 typedef struct libusb_pollfd libusb_pollfd;
