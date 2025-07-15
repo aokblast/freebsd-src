@@ -34,7 +34,7 @@
 #include <sys/linker_set.h>
 #include <pthread.h>
 
-#define	USB_MAX_XFER_BLOCKS	8
+#define	USB_MAX_XFER_BLOCKS	256
 
 #define	USB_XFER_OUT		0
 #define	USB_XFER_IN		1
@@ -44,15 +44,17 @@ struct usb_hci;
 struct usb_device_request;
 struct usb_data_xfer;
 struct vm_snapshot_meta;
+struct xhci_endp_ctx;
 
 /* Device emulation handlers */
 struct usb_devemu {
 	const char *ue_emu;	/* name of device emulation */
 	int	ue_usbver;	/* usb version: 2 or 3 */
 	int	ue_usbspeed;	/* usb device speed */
+	bool ue_static;
 
 	/* instance creation */
-	void	*(*ue_probe)(struct usb_hci *hci, nvlist_t *nvl);
+	void	*(*ue_probe)(struct usb_hci *hci, const nvlist_t *nvl);
 	int	(*ue_init)(void *sc);
 
 	/* handlers */
@@ -64,6 +66,8 @@ struct usb_devemu {
 	int	(*ue_stop)(void *sc);
 	int	(*ue_snapshot)(void *scarg, struct vm_snapshot_meta *meta);
 	int	(*ue_cancel)(struct usb_data_xfer *xfer);
+	int (*ue_configure_ep)(void *sc, int epid, struct xhci_endp_ctx *epctx,
+	    int configure);
 };
 #define	USB_EMUL_SET(x)		DATA_SET(usb_emu_set, x)
 
@@ -77,6 +81,15 @@ enum hci_usbev {
 	USBDEV_REMOVE,
 };
 
+/*
+ * USB data status for TRB
+ */
+enum usb_xfer_data_status {
+	USB_NO_DATA,
+	USB_NEXT_DATA,
+	USB_LAST_DATA,
+};
+
 /* usb controller, ie xhci, ehci */
 struct usb_hci {
 	int	(*hci_intr)(struct usb_hci *hci, int epctx);
@@ -88,7 +101,8 @@ struct usb_hci {
 	int	hci_address;
 	int	hci_port;
 	int	hci_speed;
-	int	hci_usbver;
+	int	hci_slot;
+	int	hci_usbver; /* Can be modified by the backend in the probe step */
 };
 
 /*
@@ -106,6 +120,7 @@ struct usb_data_xfer_block {
 	int	ccs;
 	uint32_t streamid;
 	uint64_t trbnext;		/* next TRB guest address */
+	enum usb_xfer_data_status status;
 };
 
 struct usb_data_xfer {
@@ -114,6 +129,7 @@ struct usb_data_xfer {
 	int	ndata;				/* # of data items */
 	int	head;
 	int	tail;
+	void *tr_softc;
 	pthread_mutex_t mtx;
 };
 

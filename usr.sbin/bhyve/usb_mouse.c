@@ -295,7 +295,7 @@ umouse_event(uint8_t button, int x, int y, void *arg)
 }
 
 static void *
-umouse_probe(struct usb_hci *hci, nvlist_t *nvl __unused)
+umouse_probe(struct usb_hci *hci, const nvlist_t *nvl __unused)
 {
 	struct umouse_softc *sc;
 
@@ -816,18 +816,19 @@ done:
 #endif
 
 static struct usb_devemu ue_mouse = {
-	.ue_emu =	"tablet",
-	.ue_usbver =	3,
-	.ue_usbspeed =	USB_SPEED_HIGH,
-	.ue_probe =	umouse_probe,
-	.ue_init =	umouse_init,
-	.ue_request =	umouse_request,
-	.ue_data =	umouse_data_handler,
-	.ue_reset =	umouse_reset,
-	.ue_remove =	umouse_remove,
-	.ue_stop =	umouse_stop,
+	.ue_emu = "tablet",
+	.ue_static = 1,
+	.ue_usbver = 3,
+	.ue_usbspeed = USB_SPEED_HIGH,
+	.ue_probe = umouse_probe,
+	.ue_init = umouse_init,
+	.ue_request = umouse_request,
+	.ue_data = umouse_data_handler,
+	.ue_reset = umouse_reset,
+	.ue_remove = umouse_remove,
+	.ue_stop = umouse_stop,
 #ifdef BHYVE_SNAPSHOT
-	.ue_snapshot =	umouse_snapshot,
+	.ue_snapshot = umouse_snapshot,
 #endif
 };
 USB_EMUL_SET(ue_mouse);

@@ -67,6 +67,7 @@ SRCS=	\
 	uart_emul.c		\
 	usb_emul.c		\
 	usb_mouse.c		\
+	usb_passthru.c	\
 	virtio.c		\
 	vmexit.c		\
 	vmgenc.c
@@ -95,7 +96,7 @@ CFLAGS+=-I${.CURDIR}		\
 	-I${.CURDIR}/../../contrib/lib9p \
 	-I${SRCTOP}/sys
 
-LIBADD+= vmmapi md nv pthread z util sbuf cam 9p
+LIBADD+= vmmapi md nv pthread z util sbuf cam 9p usb
 
 .if ${MK_BHYVE_SNAPSHOT} != "no"
 LIBADD+= ucl xo

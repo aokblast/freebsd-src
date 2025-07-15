@@ -174,6 +174,9 @@ struct xhci_input_ctx {
 	uint32_t	dwInCtx4;
 	uint32_t	dwInCtx5;
 	uint32_t	dwInCtx6;
+#define XHCI_INCTX_7_CONFIGVAL_GET(x)	 (x & 0xFF)
+#define XHCI_INCTX_7_INTERFACENUM_GET(x) ((x >> 8) & 0xFF)
+#define XHCI_INCTX_7_ALTSETTING_GET(x)	 ((x >> 16) & 0xFF)
 	uint32_t	dwInCtx7;
 };
 
