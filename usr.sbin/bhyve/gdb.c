@@ -2150,6 +2150,7 @@ new_connection(int fd, enum ev_type event __unused, void *arg)
 	cur_fd = s;
 	cur_vcpu = 0;
 	stopped_vcpu = -1;
+	bhyve_init_notify();
 
 	/* Break on attach. */
 	first_stop = true;
@@ -2247,6 +2248,7 @@ init_gdb(struct vmctx *_ctx)
 		 */
 		CPU_SET(0, &vcpus_suspended);
 		stopped_vcpu = 0;
+		bhyve_init_block();
 	}
 
 	flags = fcntl(s, F_GETFL);
