@@ -52,7 +52,7 @@
 #include <unistd.h>
 
 static int flag_a, flag_b, flag_B, flag_c, flag_C, flag_d, flag_o, flag_p,
-	   flag_s;
+    flag_s, flag_S;
 static int flag_I = 1000000;
 
 #define HIGH_PCT_BUSY_THRESH 80
@@ -64,6 +64,12 @@ static int flag_I = 1000000;
 			printw(__VA_ARGS__);				\
 	} while(0)
 
+#define SCALE(value, result, ident)           \
+	do {                                  \
+		result = (double)(value);     \
+		scale_input(&result, &ident); \
+	} while (0);
+
 static void usage(void) __dead2;
 
 static const char*
@@ -73,6 +79,28 @@ el_prompt(void)
 	return ("Filter: ");
 }
 
+/*
+ * Input kb, scaling automatically
+ */
+static void
+scale_input(double *kb, const char **ident)
+{
+	if (!flag_S)
+		return;
+
+	*ident = "k";
+
+	if (*kb > 1024) {
+		*ident = "M";
+		*kb /= 1024;
+	}
+
+	if (*kb > 1024) {
+		*ident = "G";
+		*kb /= 1024;
+	}
+}
+
 int
 main(int argc, char **argv)
 {
@@ -80,7 +108,7 @@ main(int argc, char **argv)
 	int curx, cury, maxx, maxy, line_len, loop, max_flen, head_printed;
 	struct devstat *gsp, *gsq;
 	void *sp, *sq;
-	double dt;
+	double dt, temp;
 	struct timespec tp, tq;
 	struct gmesh gmp;
 	struct gprovider *pp;
@@ -88,6 +116,8 @@ main(int argc, char **argv)
 	struct gident *gid;
 	regex_t f_re, tmp_f_re;
 	short cf, cb;
+	const char *title_ident = "k";
+	const char *format_ident = "";
 	char *p;
 	char f_s[100], pf_s[100], tmp_f_s[100];
 	char ts[100], g_name[4096];
@@ -108,7 +138,7 @@ main(int argc, char **argv)
 		flag_b = 1;
 
 	f_s[0] = '\0';
-	while ((i = getopt(argc, argv, "abBdcCf:I:ops")) != -1) {
+	while ((i = getopt(argc, argv, "abBdcCf:I:opsS")) != -1) {
 		switch (i) {
 		case 'a':
 			flag_a = 1;
@@ -163,6 +193,10 @@ main(int argc, char **argv)
 			break;
 		case 's':
 			flag_s = 1;
+			break;
+		case 'S':
+			flag_S = 1;
+			title_ident = " x";
 			break;
 		case '?':
 		default:
@@ -260,19 +294,23 @@ main(int argc, char **argv)
 			PRINTMSG("\n");
 			PRINTMSG(" L(q)  ops/s   ");
 			if (flag_s) {
-				PRINTMSG(" r/s     kB   kBps   ms/r   ");
-				PRINTMSG(" w/s     kB   kBps   ms/w   ");
+				PRINTMSG(" r/s     %sB   %sBps   ms/r   ",
+				    title_ident, title_ident);
+				PRINTMSG(" w/s     %sB   %sBps   ms/w   ",
+				    title_ident, title_ident);
 			}
 			else {
-				PRINTMSG(" r/s   kBps   ms/r   ");
-				PRINTMSG(" w/s   kBps   ms/w   ");
+				PRINTMSG(" r/s   %sBps   ms/r   ", title_ident);
+				PRINTMSG(" w/s   %sBps   ms/w   ", title_ident);
 			}
 			if (flag_d) {
 				if (flag_s) {
-					PRINTMSG(" d/s     kB   kBps");
+					PRINTMSG(" d/s     %sB   %sBps",
+					    title_ident, title_ident);
 					PRINTMSG("   ms/d   ");
 				} else
-					PRINTMSG(" d/s   kBps   ms/d   ");
+					PRINTMSG(" d/s   %sBps   ms/d   ",
+					    title_ident);
 			}
 			if (flag_o)
 				PRINTMSG(" o/s   ms/o   ");
@@ -455,9 +493,13 @@ main(int argc, char **argv)
 				PRINTMSG(" %4ju", (uintmax_t)u64);
 				PRINTMSG(" %6.0f", (double)ld[0]);
 				PRINTMSG(" %6.0f", (double)ld[1]);
-				if (flag_s)
-					PRINTMSG(" %6.0f", (double)ld[13]);
-				PRINTMSG(" %6.0f", (double)ld[2] * 1024);
+				if (flag_s) {
+					SCALE(ld[13], temp, format_ident);
+					PRINTMSG(" %6.0f%s", temp,
+					    format_ident);
+				}
+				SCALE(ld[2] * 1024, temp, format_ident);
+				PRINTMSG(" %6.0f%s", temp, format_ident);
 				if (ld[3] > 1e3) 
 					PRINTMSG(" %6.0f", (double)ld[3]);
 				else if (ld[3] > 1e0)
@@ -465,9 +507,13 @@ main(int argc, char **argv)
 				else
 					PRINTMSG(" %6.3f", (double)ld[3]);
 				PRINTMSG(" %6.0f", (double)ld[4]);
-				if (flag_s)
-					PRINTMSG(" %6.0f", (double)ld[14]);
-				PRINTMSG(" %6.0f", (double)ld[5] * 1024);
+				if (flag_s) {
+					SCALE(ld[14], temp, format_ident);
+					PRINTMSG(" %6.0f%s", temp,
+					    format_ident);
+				}
+				SCALE(ld[5] * 1024, temp, format_ident);
+				PRINTMSG(" %6.0f%s", temp, format_ident);
 				if (ld[6] > 1e3) 
 					PRINTMSG(" %6.0f", (double)ld[6]);
 				else if (ld[6] > 1e0)
@@ -477,11 +523,15 @@ main(int argc, char **argv)
 
 				if (flag_d) {
 					PRINTMSG(" %6.0f", (double)ld[8]);
-					if (flag_s)
-						PRINTMSG(" %6.0f", 
-								(double)ld[15]);
-					PRINTMSG(" %6.0f", 
-							(double)ld[9] * 1024);
+					if (flag_s) {
+						SCALE(ld[15], temp,
+						    format_ident);
+						PRINTMSG(" %6.0f%s", temp,
+						    format_ident);
+					}
+					SCALE(ld[9] * 1024, temp, format_ident);
+					PRINTMSG(" %6.0f%s", temp,
+					    format_ident);
 					if (ld[10] > 1e3) 
 						PRINTMSG(" %6.0f",
 								(double)ld[10]);
@@ -615,7 +665,8 @@ out:
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: gstat [-abBcCdops] [-f filter] [-I interval]\n");
+	fprintf(stderr,
+	    "usage: gstat [-abBcCdpsS] [-f filter] [-I interval]\n");
 	exit(EX_USAGE);
         /* NOTREACHED */
 }
