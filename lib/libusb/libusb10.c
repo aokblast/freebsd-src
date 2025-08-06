@@ -1334,6 +1334,17 @@ libusb10_bulk_intr_proxy(struct libusb20_transfer *pxfer)
 		}
 		/* check for end of data */
 		if (sxfer->rem_len == 0) {
+			if (flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET) {
+				uxfer->flags &=
+				    ~LIBUSB_TRANSFER_ADD_ZERO_PACKET;
+				libusb20_tr_setup_bulk(pxfer, sxfer->curr_data,
+				    0, uxfer->timeout);
+				libusb20_tr_submit(pxfer);
+				libusb10_submit_transfer_sub(
+				    libusb20_tr_get_priv_sc0(pxfer),
+				    uxfer->endpoint);
+				break;
+			}
 			libusb10_complete_transfer(pxfer, sxfer, LIBUSB_TRANSFER_COMPLETED);
 			/* start next queued transfer, if any */
 			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
@@ -1357,7 +1368,8 @@ libusb10_bulk_intr_proxy(struct libusb20_transfer *pxfer)
 		libusb20_tr_submit(pxfer);
 
 		/* check if we can fork another USB transfer */
-		if (sxfer->rem_len == 0)
+		if (sxfer->rem_len == 0 &&
+		    !(flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET))
 			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 		break;
 
@@ -1593,7 +1605,7 @@ libusb_submit_transfer(struct libusb_transfer *uxfer)
 	struct libusb_super_transfer *sxfer;
 	struct libusb_device *dev;
 	uint8_t endpoint;
-	int err;
+	int err, mps;
 
 	if (uxfer == NULL)
 		return (LIBUSB_ERROR_INVALID_PARAM);
@@ -1614,6 +1626,11 @@ libusb_submit_transfer(struct libusb_transfer *uxfer)
 
 	pxfer0 = libusb10_get_transfer(uxfer->dev_handle, endpoint, 0);
 	pxfer1 = libusb10_get_transfer(uxfer->dev_handle, endpoint, 1);
+	mps = libusb_get_max_packet_size(dev, endpoint);
+
+	if ((uxfer->flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET) &&
+	    ((endpoint & LIBUSB_ENDPOINT_IN) || uxfer->length % mps != 0))
+		uxfer->flags &= ~LIBUSB_TRANSFER_ADD_ZERO_PACKET;
 
 	if (pxfer0 == NULL || pxfer1 == NULL) {
 		err = LIBUSB_ERROR_OTHER;
