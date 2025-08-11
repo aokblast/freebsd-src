@@ -91,6 +91,11 @@ typedef enum {
 	usb_event_netlink
 } usb_event_mode_t;
 
+struct libusb_backend_context {
+	int usbd_fd;
+	int ctrl_fd;
+};
+
 struct libusb_context {
 	int	debug;
 	int	debug_fixed;
@@ -120,6 +125,7 @@ struct libusb_context {
 	void   *fd_cb_user_data;
 	libusb_log_cb log_cb;
 	int no_discovery;
+	struct libusb_backend_context backend_ctx;
 };
 
 struct libusb_device {

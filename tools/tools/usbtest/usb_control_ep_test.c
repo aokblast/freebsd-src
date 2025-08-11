@@ -90,7 +90,7 @@ usb_control_ep_error_test(struct uaddr uaddr)
 		printf("USB device not found\n");
 		return;
 	}
-	error = libusb20_dev_open(pdev, 0);
+	error = libusb20_dev_open(pdev, 0, usbd_fd);
 	if (error) {
 		printf("Could not open USB device\n");
 		libusb20_dev_free(pdev);
@@ -174,7 +174,7 @@ usb_get_string_desc_test(struct uaddr uaddr)
 		printf("USB device not found\n");
 		return;
 	}
-	error = libusb20_dev_open(pdev, 0);
+	error = libusb20_dev_open(pdev, 0, usbd_fd);
 	if (error) {
 		printf("Could not open USB device\n");
 		libusb20_dev_free(pdev);
@@ -256,7 +256,7 @@ usb_port_reset_test(struct uaddr uaddr, uint32_t duration)
 		printf("USB device not found\n");
 		return;
 	}
-	error = libusb20_dev_open(pdev, 0);
+	error = libusb20_dev_open(pdev, 0, usbd_fd);
 	if (error) {
 		libusb20_dev_free(pdev);
 		printf("Could not open USB device\n");
@@ -319,7 +319,7 @@ usb_set_config_test(struct uaddr uaddr, uint32_t duration)
 		printf("USB device not found\n");
 		return;
 	}
-	error = libusb20_dev_open(pdev, 0);
+	error = libusb20_dev_open(pdev, 0, usbd_fd);
 	if (error) {
 		printf("Could not open USB device\n");
 		libusb20_dev_free(pdev);
@@ -407,7 +407,7 @@ usb_suspend_resume_test(struct uaddr uaddr, uint32_t duration)
 		printf("USB device not found\n");
 		return;
 	}
-	error = libusb20_dev_open(pdev, 0);
+	error = libusb20_dev_open(pdev, 0, usbd_fd);
 	if (error) {
 		printf("Could not open USB device\n");
 		libusb20_dev_free(pdev);
@@ -482,7 +482,7 @@ usb_set_and_clear_stall_test(struct uaddr uaddr)
 		printf("USB device not found\n");
 		return;
 	}
-	error = libusb20_dev_open(pdev, 1);
+	error = libusb20_dev_open(pdev, 1, usbd_fd);
 	if (error) {
 		printf("Could not open USB device\n");
 		libusb20_dev_free(pdev);
@@ -623,7 +623,7 @@ usb_set_alt_interface_test(struct uaddr uaddr)
 	    "for VID=0x%04x PID=0x%04x\n", uaddr.vid, uaddr.pid);
 
 	config = libusb20_dev_alloc_config(pdev,
-	    libusb20_dev_get_config_index(pdev));
+	    libusb20_dev_get_config_index(pdev, usbd_fd), usbd_fd);
 	if (config == NULL) {
 		printf("Could not get configuration descriptor\n");
 		libusb20_dev_free(pdev);
@@ -636,7 +636,7 @@ usb_set_alt_interface_test(struct uaddr uaddr)
 		/* detach kernel driver */
 		libusb20_dev_detach_kernel_driver(pdev, n);
 
-		error = libusb20_dev_open(pdev, 0);
+		error = libusb20_dev_open(pdev, 0, usbd_fd);
 		if (error)
 			printf("ERROR could not open device\n");
 

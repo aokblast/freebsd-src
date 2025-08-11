@@ -870,7 +870,7 @@ show_host_device_selection(uint8_t level, struct uaddr *puaddr)
 	const char *ptr;
 
 top:
-	pbe = libusb20_be_alloc_default();
+	pbe = libusb20_be_alloc_default(usb_ctrl_fd, usbd_fd);
 	pdev = NULL;
 	index = 0;
 
@@ -916,7 +916,8 @@ top:
 struct libusb20_device *
 find_usb_device(struct uaddr uaddr)
 {
-	struct libusb20_backend *pbe = libusb20_be_alloc_default();
+	struct libusb20_backend *pbe = libusb20_be_alloc_default(usb_ctrl_fd,
+	    usbd_fd);
 	struct libusb20_device *pdev = NULL;
 	struct LIBUSB20_DEVICE_DESC_DECODED *ddesc;
 
@@ -959,7 +960,7 @@ find_usb_endpoints(struct libusb20_device *pdev, uint8_t class,
 	*pif = 0;
 
 	pcfg = libusb20_dev_alloc_config(pdev,
-	    libusb20_dev_get_config_index(pdev));
+	    libusb20_dev_get_config_index(pdev, usbd_fd), usbd_fd);
 
 	if (pcfg == NULL)
 		return;
@@ -1031,7 +1032,7 @@ exec_host_msc_test(struct usb_msc_params *p, struct uaddr uaddr)
 	printf("Attaching to: %s @ iface %d\n",
 	    libusb20_dev_get_desc(pdev), iface);
 
-	if (libusb20_dev_open(pdev, 2)) {
+	if (libusb20_dev_open(pdev, 2, usbd_fd)) {
 		printf("Could not open USB device\n");
 		libusb20_dev_free(pdev);
 		return;

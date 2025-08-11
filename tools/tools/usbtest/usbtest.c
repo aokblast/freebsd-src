@@ -30,9 +30,13 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <sys/types.h>
+#include <sys/capsicum.h>
 #include <sys/sysctl.h>
+
+#include <libusb20.h>
 
 #include <dev/usb/usb_ioctl.h>
 
@@ -44,6 +48,8 @@
 #include <g_audio.h>
 
 static uint8_t usb_ts_select[USB_TS_MAX_LEVELS];
+int usb_ctrl_fd = -1;
+int usbd_fd = -1;
 
 const char *indent[USB_TS_MAX_LEVELS] = {
 	" ",
@@ -805,7 +811,46 @@ show_mode_select(uint8_t level)
 int
 main(int argc, char **argv)
 {
+	const char *path;
+	cap_rights_t rights;
+
+	path = libusb20_be_get_path(LIBUSB20_PATH_CTRL);
+	if (path == NULL)
+		return (1);
+	usb_ctrl_fd = open(path, O_RDWR);
+	if (usb_ctrl_fd == -1)
+		return (1);
+
+	path = libusb20_be_get_path(LIBUSB20_PATH_USBD_PATH);
+	if (path == NULL) {
+		close(usb_ctrl_fd);
+		return (1);
+	}
+	usbd_fd = open(path, O_PATH | O_DIRECTORY);
+	if (usbd_fd == -1) {
+		close(usb_ctrl_fd);
+		return (1);
+	}
+	cap_rights_init(&rights, CAP_READ, CAP_WRITE, CAP_EVENT, CAP_IOCTL,
+	    CAP_LOOKUP, CAP_PREAD);
+	if (cap_rights_limit(usbd_fd, &rights) == -1) {
+		close(usbd_fd);
+		close(usb_ctrl_fd);
+		return (1);
+	}
+	cap_rights_init(&rights, CAP_READ, CAP_WRITE, CAP_EVENT, CAP_IOCTL);
+	if (cap_rights_limit(usb_ctrl_fd, &rights) == -1) {
+		close(usbd_fd);
+		close(usb_ctrl_fd);
+		return (1);
+	}
+
+	cap_enter();
+
 	show_mode_select(1);
+
+	close(usb_ctrl_fd);
+	close(usbd_fd);
 
 	return (0);
 }

@@ -157,7 +157,7 @@ usb_open(struct usb_device *dev)
 {
 	int err;
 
-	err = libusb20_dev_open(dev->dev, 16 * 2);
+	err = libusb20_dev_open(dev->dev, 16 * 2, -1);
 	if (err == LIBUSB20_ERROR_BUSY) {
 		/*
 		 * Workaround buggy USB applications which open the USB
@@ -902,7 +902,7 @@ usb_find_devices(void)
 	libusb20_be_free(usb_backend);
 
 	/* do a new backend device search */
-	usb_backend = libusb20_be_alloc_default();
+	usb_backend = libusb20_be_alloc_default(-1, -1);
 	if (usb_backend == NULL) {
 		return (-1);
 	}
@@ -950,7 +950,7 @@ usb_find_devices(void)
 		udev->dev = pdev;
 		pdev->privLuData = udev;
 
-		err = libusb20_dev_open(pdev, 0);
+		err = libusb20_dev_open(pdev, 0, -1);
 		if (err == 0) {
 			/* XXX get all config descriptors by default */
 			usb_fetch_and_parse_descriptors((void *)pdev);

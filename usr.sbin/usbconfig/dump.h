@@ -28,6 +28,9 @@
 #ifndef _DUMP_H_
 #define	_DUMP_H_
 
+extern int usbd_fd;
+extern int usb_ctrl_fd;
+
 const char *dump_mode(uint8_t value);
 const char *dump_speed(uint8_t value);
 const char *dump_power_mode(uint8_t value);

@@ -43,6 +43,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/capsicum.h>
 #include <sys/eventfd.h>
 #include <sys/fcntl.h>
 #include <sys/ioctl.h>
@@ -210,6 +211,8 @@ libusb_init_context(libusb_context **context,
 	ctx->log_cb = NULL;
 	ctx->no_discovery = false;
 	ctx->debug = LIBUSB_LOG_LEVEL_NONE;
+	ctx->backend_ctx.ctrl_fd = -1;
+	ctx->backend_ctx.usbd_fd = -1;
 
 	if (debug != NULL) {
 		/*
@@ -351,6 +354,10 @@ libusb_exit(libusb_context *ctx)
 
 	libusb10_remove_pollfd(ctx, &ctx->ctx_poll);
 	close(ctx->event);
+	if (ctx->backend_ctx.ctrl_fd != -1)
+		close(ctx->backend_ctx.ctrl_fd);
+	if (ctx->backend_ctx.usbd_fd != -1)
+		close(ctx->backend_ctx.usbd_fd);
 	pthread_mutex_destroy(&ctx->ctx_lock);
 	pthread_mutex_destroy(&ctx->hotplug_lock);
 	pthread_cond_destroy(&ctx->ctx_cond);
@@ -382,7 +389,8 @@ libusb_get_device_list(libusb_context *ctx, libusb_device ***list)
 	if (list == NULL)
 		return (LIBUSB_ERROR_INVALID_PARAM);
 
-	usb_backend = libusb20_be_alloc_default();
+	usb_backend = libusb20_be_alloc_default(ctx->backend_ctx.ctrl_fd,
+	    ctx->backend_ctx.usbd_fd);
 	if (usb_backend == NULL)
 		return (LIBUSB_ERROR_NO_MEM);
 
@@ -644,7 +652,8 @@ libusb_open(libusb_device *dev, libusb_device_handle **devh)
 	if (dev == NULL)
 		return (LIBUSB_ERROR_INVALID_PARAM);
 
-	err = libusb20_dev_open(pdev, LIBUSB_NUM_SW_ENDPOINTS);
+	err = libusb20_dev_open(pdev, LIBUSB_NUM_SW_ENDPOINTS,
+	    ctx->backend_ctx.usbd_fd);
 	if (err) {
 		libusb_unref_device(dev);
 		return (LIBUSB_ERROR_NO_MEM);
@@ -746,11 +755,18 @@ int
 libusb_get_configuration(struct libusb20_device *pdev, int *config)
 {
 	struct libusb20_config *pconf;
+	struct libusb_device *dev;
+	struct libusb_context *ctx;
 
 	if (pdev == NULL || config == NULL)
 		return (LIBUSB_ERROR_INVALID_PARAM);
 
-	pconf = libusb20_dev_alloc_config(pdev, libusb20_dev_get_config_index(pdev));
+	dev = libusb_get_device(pdev);
+	ctx = dev->ctx;
+
+	pconf = libusb20_dev_alloc_config(pdev,
+	    libusb20_dev_get_config_index(pdev, ctx->backend_ctx.usbd_fd),
+	    ctx->backend_ctx.usbd_fd);
 	if (pconf == NULL)
 		return (LIBUSB_ERROR_NO_MEM);
 
@@ -766,12 +782,14 @@ libusb_set_configuration(struct libusb20_device *pdev, int configuration)
 {
 	struct libusb20_config *pconf;
 	struct libusb_device *dev;
+	struct libusb_context *ctx;
 	int err;
 	uint8_t i;
 
 	dev = libusb_get_device(pdev);
 	if (dev == NULL)
 		return (LIBUSB_ERROR_INVALID_PARAM);
+	ctx = dev->ctx;
 
 	if (configuration < 1) {
 		/* unconfigure */
@@ -780,7 +798,8 @@ libusb_set_configuration(struct libusb20_device *pdev, int configuration)
 		for (i = 0; i != 255; i++) {
 			uint8_t found;
 
-			pconf = libusb20_dev_alloc_config(pdev, i);
+			pconf = libusb20_dev_alloc_config(pdev, i,
+			    ctx->backend_ctx.usbd_fd);
 			if (pconf == NULL)
 				return (LIBUSB_ERROR_INVALID_PARAM);
 			found = (pconf->desc.bConfigurationValue
@@ -1949,6 +1968,9 @@ libusb_set_option(libusb_context *ctx, enum libusb_option option, ...)
 	enum libusb_log_level level;
 	va_list args;
 	libusb_log_cb callback;
+	const char *path;
+	cap_rights_t rights;
+	int ctrl_fd, usbd_fd;
 
 	ctx = GET_CONTEXT(ctx);
 	va_start(args, option);
@@ -1998,6 +2020,48 @@ libusb_set_option(libusb_context *ctx, enum libusb_option option, ...)
 		 * backend specified SDK
 		 */
 	case LIBUSB_OPTION_USE_USBDK:
+		break;
+	case LIBUSB_OPTION_CAPSICUMIZE:
+		path = libusb20_be_get_path(LIBUSB20_PATH_CTRL);
+		if (path == NULL) {
+			err = LIBUSB_ERROR_INVALID_PARAM;
+			break;
+		}
+		ctrl_fd = open(path, O_RDWR);
+		if (ctrl_fd == -1) {
+			err = LIBUSB_ERROR_IO;
+			break;
+		}
+		path = libusb20_be_get_path(LIBUSB20_PATH_USBD_PATH);
+		if (path == NULL) {
+			close(ctrl_fd);
+			err = LIBUSB_ERROR_INVALID_PARAM;
+			break;
+		}
+		usbd_fd = open(path, O_DIRECTORY | O_PATH);
+		if (usbd_fd == -1) {
+			close(ctrl_fd);
+			err = LIBUSB_ERROR_IO;
+			break;
+		}
+		cap_rights_init(&rights, CAP_PREAD, CAP_PWRITE, CAP_EVENT,
+		    CAP_IOCTL, CAP_LOOKUP);
+		if (cap_rights_limit(usbd_fd, &rights) == -1) {
+			close(usbd_fd);
+			close(ctrl_fd);
+			err = LIBUSB_ERROR_IO;
+			break;
+		}
+		cap_rights_init(&rights, CAP_READ, CAP_WRITE, CAP_EVENT,
+		    CAP_IOCTL);
+		if (cap_rights_limit(ctrl_fd, &rights) == -1) {
+			close(usbd_fd);
+			close(ctrl_fd);
+			err = LIBUSB_ERROR_IO;
+			break;
+		}
+		ctx->backend_ctx.ctrl_fd = ctrl_fd;
+		ctx->backend_ctx.usbd_fd = usbd_fd;
 		break;
 	case LIBUSB_OPTION_MAX:
 	default:

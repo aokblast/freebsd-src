@@ -123,6 +123,10 @@ disable the USB enumeration.
 .It Va LIBUSB_OPTION_LOG_CB
 customize default callback function with
 .Fa value .
+.It Va LIBUSB_OPTION_CAPSICUMIZE
+capsicumize libusb.
+Note that it is users' responsibility to call
+.Fn cap_enter .
 .El
 .Pp
 .Ft const char *
@@ -900,7 +904,8 @@ The library is also compliant with LibUSB version 0.1.12.
 .Xr libusb20 3 ,
 .Xr usb 4 ,
 .Xr usbconfig 8 ,
-.Xr usbdump 8
+.Xr usbdump 8 ,
+.Xr capsicum 4
 .Pp
 .Lk https://libusb.info/
 .Sh HISTORY

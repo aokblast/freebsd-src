@@ -64,6 +64,7 @@ static libusb20_root_add_dev_quirk_t ugen20_root_add_dev_quirk;
 static libusb20_root_remove_dev_quirk_t ugen20_root_remove_dev_quirk;
 static libusb20_root_set_template_t ugen20_root_set_template;
 static libusb20_root_get_template_t ugen20_root_get_template;
+static libusb20_backend_get_path_t ugen20_backend_get_path;
 
 const struct libusb20_backend_methods libusb20_ugen20_backend = {
 	LIBUSB20_BACKEND(LIBUSB20_DECLARE, ugen20)
@@ -131,24 +132,38 @@ ugen20_path_convert_one(const char **pp)
 }
 
 static int
-ugen20_enumerate(struct libusb20_device *pdev, const char *id)
+ugen20_open_dev(int bus_num, int dev_addr, int usb_dfd, int flag)
+{
+	char dev_path[16];
+	char full_path[48];
+
+	snprintf(dev_path, sizeof(dev_path), "%u.%u.0", bus_num, dev_addr);
+
+	if (usb_dfd == -1) {
+		snprintf(full_path, sizeof(full_path),
+		    "/dev/" USB_GENERIC_NAME "%u.%u", bus_num, dev_addr);
+		return (open(full_path, flag));
+	}
+
+	return (openat(usb_dfd, dev_path, flag));
+}
+
+static int
+ugen20_enumerate(struct libusb20_device *pdev, const char *id, int usb_dfd)
 {
 	const char *tmp = id;
 	struct usb_device_descriptor ddesc;
 	struct usb_device_info devinfo;
 	struct usb_device_port_path udpp;
 	uint32_t plugtime;
-	char buf[64];
 	int f;
 	int error;
 
 	pdev->bus_number = ugen20_path_convert_one(&tmp);
 	pdev->device_address = ugen20_path_convert_one(&tmp);
 
-	snprintf(buf, sizeof(buf), "/dev/" USB_GENERIC_NAME "%u.%u",
-	    pdev->bus_number, pdev->device_address);
-
-	f = open(buf, O_RDWR);
+	f = ugen20_open_dev(pdev->bus_number, pdev->device_address, usb_dfd,
+	    O_RDWR);
 	if (f < 0) {
 		return (LIBUSB20_ERROR_OTHER);
 	}
@@ -282,14 +297,14 @@ repeat:
 }
 
 static int
-ugen20_init_backend(struct libusb20_backend *pbe)
+ugen20_init_backend(struct libusb20_backend *pbe, int cfd, int usb_dfd)
 {
 	struct ugen20_urd_state state;
 	struct libusb20_device *pdev;
 
 	memset(&state, 0, sizeof(state));
 
-	state.f = open("/dev/" USB_DEVICE_NAME, O_RDONLY);
+	state.f = cfd == -1 ? open("/dev/" USB_DEVICE_NAME, O_RDONLY) : cfd;
 	if (state.f < 0)
 		return (LIBUSB20_ERROR_OTHER);
 
@@ -305,14 +320,15 @@ ugen20_init_backend(struct libusb20_backend *pbe)
 		if (pdev == NULL) {
 			continue;
 		}
-		if (ugen20_enumerate(pdev, state.src + 4)) {
+		if (ugen20_enumerate(pdev, state.src + 4, usb_dfd)) {
 			libusb20_dev_free(pdev);
 			continue;
 		}
 		/* put the device on the backend list */
 		libusb20_be_enqueue_device(pbe, pdev);
 	}
-	close(state.f);
+	if (cfd == -1)
+		close(state.f);
 	return (0);			/* success */
 }
 
@@ -376,27 +392,26 @@ done:
 }
 
 static int
-ugen20_open_device(struct libusb20_device *pdev, uint16_t nMaxTransfer)
+ugen20_open_device(struct libusb20_device *pdev, uint16_t nMaxTransfer,
+    int usb_dfd)
 {
 	uint32_t plugtime;
-	char buf[64];
 	int f;
 	int g;
 	int error;
-
-	snprintf(buf, sizeof(buf), "/dev/" USB_GENERIC_NAME "%u.%u",
-	    pdev->bus_number, pdev->device_address);
 
 	/*
 	 * We need two file handles, one for the control endpoint and one
 	 * for BULK, INTERRUPT and ISOCHRONOUS transactions due to optimised
 	 * kernel locking.
 	 */
-	g = open(buf, O_RDWR);
+	g = ugen20_open_dev(pdev->bus_number, pdev->device_address, usb_dfd,
+	    O_RDWR);
 	if (g < 0) {
 		return (LIBUSB20_ERROR_NO_DEVICE);
 	}
-	f = open(buf, O_RDWR);
+	f = ugen20_open_dev(pdev->bus_number, pdev->device_address, usb_dfd,
+	    O_RDWR);
 	if (f < 0) {
 		close(g);
 		return (LIBUSB20_ERROR_NO_DEVICE);
@@ -939,12 +954,12 @@ ugen20_tr_cancel_async(struct libusb20_transfer *xfer)
 }
 
 static int
-ugen20_be_ioctl(uint32_t cmd, void *data)
+ugen20_be_ioctl(uint32_t cmd, void *data, int cfd)
 {
 	int f;
 	int error;
 
-	f = open("/dev/" USB_DEVICE_NAME, O_RDONLY);
+	f = cfd == -1 ? cfd : open("/dev/" USB_DEVICE_NAME, O_RDONLY);
 	if (f < 0)
 		return (LIBUSB20_ERROR_OTHER);
 	error = ioctl(f, cmd, data);
@@ -955,7 +970,8 @@ ugen20_be_ioctl(uint32_t cmd, void *data)
 			error = LIBUSB20_ERROR_OTHER;
 		}
 	}
-	close(f);
+	if (cfd == -1)
+		close(f);
 	return (error);
 }
 
@@ -988,8 +1004,8 @@ ugen20_dev_get_info(struct libusb20_device *pdev,
 }
 
 static int
-ugen20_root_get_dev_quirk(struct libusb20_backend *pbe,
-    uint16_t quirk_index, struct libusb20_quirk *pq)
+ugen20_root_get_dev_quirk(struct libusb20_backend *pbe, uint16_t quirk_index,
+    struct libusb20_quirk *pq, int cfd)
 {
 	struct usb_gen_quirk q;
 	int error;
@@ -998,7 +1014,7 @@ ugen20_root_get_dev_quirk(struct libusb20_backend *pbe,
 
 	q.index = quirk_index;
 
-	error = ugen20_be_ioctl(IOUSB(USB_DEV_QUIRK_GET), &q);
+	error = ugen20_be_ioctl(IOUSB(USB_DEV_QUIRK_GET), &q, cfd);
 
 	if (error) {
 		if (errno == EINVAL) {
@@ -1016,7 +1032,7 @@ ugen20_root_get_dev_quirk(struct libusb20_backend *pbe,
 
 static int
 ugen20_root_get_quirk_name(struct libusb20_backend *pbe, uint16_t quirk_index,
-    struct libusb20_quirk *pq)
+    struct libusb20_quirk *pq, int cfd)
 {
 	struct usb_gen_quirk q;
 	int error;
@@ -1025,7 +1041,7 @@ ugen20_root_get_quirk_name(struct libusb20_backend *pbe, uint16_t quirk_index,
 
 	q.index = quirk_index;
 
-	error = ugen20_be_ioctl(IOUSB(USB_QUIRK_NAME_GET), &q);
+	error = ugen20_be_ioctl(IOUSB(USB_QUIRK_NAME_GET), &q, cfd);
 
 	if (error) {
 		if (errno == EINVAL) {
@@ -1039,7 +1055,7 @@ ugen20_root_get_quirk_name(struct libusb20_backend *pbe, uint16_t quirk_index,
 
 static int
 ugen20_root_add_dev_quirk(struct libusb20_backend *pbe,
-    struct libusb20_quirk *pq)
+    struct libusb20_quirk *pq, int cfd)
 {
 	struct usb_gen_quirk q;
 	int error;
@@ -1052,7 +1068,7 @@ ugen20_root_add_dev_quirk(struct libusb20_backend *pbe,
 	q.bcdDeviceHigh = pq->bcdDeviceHigh;
 	strlcpy(q.quirkname, pq->quirkname, sizeof(q.quirkname));
 
-	error = ugen20_be_ioctl(IOUSB(USB_DEV_QUIRK_ADD), &q);
+	error = ugen20_be_ioctl(IOUSB(USB_DEV_QUIRK_ADD), &q, cfd);
 	if (error) {
 		if (errno == ENOMEM) {
 			return (LIBUSB20_ERROR_NO_MEM);
@@ -1063,7 +1079,7 @@ ugen20_root_add_dev_quirk(struct libusb20_backend *pbe,
 
 static int
 ugen20_root_remove_dev_quirk(struct libusb20_backend *pbe,
-    struct libusb20_quirk *pq)
+    struct libusb20_quirk *pq, int cfd)
 {
 	struct usb_gen_quirk q;
 	int error;
@@ -1076,7 +1092,7 @@ ugen20_root_remove_dev_quirk(struct libusb20_backend *pbe,
 	q.bcdDeviceHigh = pq->bcdDeviceHigh;
 	strlcpy(q.quirkname, pq->quirkname, sizeof(q.quirkname));
 
-	error = ugen20_be_ioctl(IOUSB(USB_DEV_QUIRK_REMOVE), &q);
+	error = ugen20_be_ioctl(IOUSB(USB_DEV_QUIRK_REMOVE), &q, cfd);
 	if (error) {
 		if (errno == EINVAL) {
 			return (LIBUSB20_ERROR_NOT_FOUND);
@@ -1086,13 +1102,24 @@ ugen20_root_remove_dev_quirk(struct libusb20_backend *pbe,
 }
 
 static int
-ugen20_root_set_template(struct libusb20_backend *pbe, int temp)
+ugen20_root_set_template(struct libusb20_backend *pbe, int temp, int cfd)
 {
-	return (ugen20_be_ioctl(IOUSB(USB_SET_TEMPLATE), &temp));
+	return (ugen20_be_ioctl(IOUSB(USB_SET_TEMPLATE), &temp, cfd));
 }
 
 static int
-ugen20_root_get_template(struct libusb20_backend *pbe, int *ptemp)
+ugen20_root_get_template(struct libusb20_backend *pbe, int *ptemp, int cfd)
 {
-	return (ugen20_be_ioctl(IOUSB(USB_GET_TEMPLATE), ptemp));
+	return (ugen20_be_ioctl(IOUSB(USB_GET_TEMPLATE), ptemp, cfd));
+}
+
+static const char *
+ugen20_backend_get_path(enum libusb20_path_type path_type)
+{
+	switch (path_type) {
+	case LIBUSB20_PATH_CTRL:
+		return ("/dev/" USB_DEVICE_NAME);
+	case LIBUSB20_PATH_USBD_PATH:
+		return ("/dev/usb/");
+	}
 }

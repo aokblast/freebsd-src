@@ -38,11 +38,15 @@
 #include <errno.h>
 #include <ctype.h>
 #include <sys/param.h>
+#include <sys/capsicum.h>
 
 #include <libusb20_desc.h>
 #include <libusb20.h>
 
 #include "dump.h"
+
+int usb_ctrl_fd = -1;
+int usbd_fd = -1;
 
 struct options {
 	const char *quirkname;
@@ -182,7 +186,7 @@ be_dev_remove_quirk(struct libusb20_backend *pbe,
 	q.bcdDeviceHigh = hirev;
 	strlcpy(q.quirkname, str, sizeof(q.quirkname));
 
-	error = libusb20_be_remove_dev_quirk(pbe, &q);
+	error = libusb20_be_remove_dev_quirk(pbe, &q, usb_ctrl_fd);
 	if (error) {
 		fprintf(stderr, "Removing quirk '%s' failed, continuing.\n", str);
 	}
@@ -204,7 +208,7 @@ be_dev_add_quirk(struct libusb20_backend *pbe,
 	q.bcdDeviceHigh = hirev;
 	strlcpy(q.quirkname, str, sizeof(q.quirkname));
 
-	error = libusb20_be_add_dev_quirk(pbe, &q);
+	error = libusb20_be_add_dev_quirk(pbe, &q, usb_ctrl_fd);
 	if (error) {
 		fprintf(stderr, "Adding quirk '%s' failed, continuing.\n", str);
 	}
@@ -358,14 +362,14 @@ flush_command(struct libusb20_backend *pbe, struct options *opt)
 	}
 	if (opt->got_set_template) {
 		opt->got_any--;
-		if (libusb20_be_set_template(pbe, opt->template)) {
+		if (libusb20_be_set_template(pbe, opt->template, usb_ctrl_fd)) {
 			fprintf(stderr, "Setting USB template %u failed, "
 			    "continuing.\n", opt->template);
 		}
 	}
 	if (opt->got_get_template) {
 		opt->got_any--;
-		if (libusb20_be_get_template(pbe, &opt->template))
+		if (libusb20_be_get_template(pbe, &opt->template, usb_ctrl_fd))
 			printf("USB template: <unknown>\n");
 		else
 			printf("USB template: %u\n", opt->template);
@@ -411,7 +415,7 @@ flush_command(struct libusb20_backend *pbe, struct options *opt)
 			    opt->quirkname);
 		}
 
-		if (libusb20_dev_open(pdev, 0)) {
+		if (libusb20_dev_open(pdev, 0, usbd_fd)) {
 			err(1, "could not open device");
 		}
 		if (opt->got_dump_string) {
@@ -559,6 +563,8 @@ main(int argc, char **argv)
 	struct libusb20_backend *pbe;
 	struct options *opt = &options;
 	const char *ptr;
+	const char *path;
+	cap_rights_t rights;
 	int unit;
 	int addr;
 	int n;
@@ -568,7 +574,7 @@ main(int argc, char **argv)
 	if (argc < 1) {
 		usage(EX_USAGE);
 	}
-	pbe = libusb20_be_alloc_default();
+	pbe = libusb20_be_alloc_default(usb_ctrl_fd, usbd_fd);
 	if (pbe == NULL)
 		err(1, "could not access USB backend\n");
 
@@ -631,6 +637,36 @@ main(int argc, char **argv)
 	}
 	argc -= optind;
 	argv += optind;
+
+	path = libusb20_be_get_path(LIBUSB20_PATH_CTRL);
+	if (path == NULL)
+		return (1);
+	usb_ctrl_fd = open(path, O_RDWR);
+	if (usb_ctrl_fd == -1)
+		return (1);
+	path = libusb20_be_get_path(LIBUSB20_PATH_USBD_PATH);
+	if (path == NULL)
+		return (1);
+	usbd_fd = open(path, O_PATH | O_DIRECTORY);
+	if (usbd_fd == -1) {
+		close(usb_ctrl_fd);
+		return (1);
+	}
+	cap_rights_init(&rights, CAP_EVENT, CAP_IOCTL, CAP_LOOKUP, CAP_PREAD,
+	    CAP_PWRITE);
+	if (cap_rights_limit(usbd_fd, &rights) == -1) {
+		close(usbd_fd);
+		close(usb_ctrl_fd);
+		return (1);
+	}
+	cap_rights_init(&rights, CAP_READ, CAP_WRITE, CAP_EVENT, CAP_IOCTL);
+	if (cap_rights_limit(usb_ctrl_fd, &rights) == -1) {
+		close(usbd_fd);
+		close(usb_ctrl_fd);
+		return (1);
+	}
+
+	cap_enter();
 
 	for (n = 0; n != argc; n++) {
 
@@ -911,6 +947,10 @@ main(int argc, char **argv)
 	}
 	/* release data */
 	libusb20_be_free(pbe);
+	if (usb_ctrl_fd != -1)
+		close(usb_ctrl_fd);
+	if (usbd_fd)
+		close(usbd_fd);
 
 	return (0);
 }

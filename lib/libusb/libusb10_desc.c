@@ -83,10 +83,13 @@ libusb_get_active_config_descriptor(libusb_device *dev,
     struct libusb_config_descriptor **config)
 {
 	struct libusb20_device *pdev;
+	struct libusb_context *ctx;
 	uint8_t config_index;
 
 	pdev = dev->os_priv;
-	config_index = libusb20_dev_get_config_index(pdev);
+	ctx = dev->ctx;
+	config_index = libusb20_dev_get_config_index(pdev,
+	    ctx->backend_ctx.usbd_fd);
 
 	return (libusb_get_config_descriptor(dev, config_index, config));
 }
@@ -102,6 +105,7 @@ libusb_get_config_descriptor(libusb_device *dev, uint8_t config_index,
 	struct libusb_config_descriptor *pconfd;
 	struct libusb_interface_descriptor *ifd;
 	struct libusb_endpoint_descriptor *endd;
+	struct libusb_context *ctx;
 	uint8_t *pextra;
 	uint16_t nextra;
 	uint8_t nif;
@@ -117,7 +121,9 @@ libusb_get_config_descriptor(libusb_device *dev, uint8_t config_index,
 	*config = NULL;
 
 	pdev = dev->os_priv;
-	pconf = libusb20_dev_alloc_config(pdev, config_index);
+	ctx = dev->ctx;
+	pconf = libusb20_dev_alloc_config(pdev, config_index,
+	    ctx->backend_ctx.usbd_fd);
 
 	if (pconf == NULL)
 		return (LIBUSB_ERROR_NOT_FOUND);

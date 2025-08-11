@@ -45,18 +45,19 @@ union libusb20_session_data {
 
 /* USB backend specific */
 typedef const char *(libusb20_get_backend_name_t)(void);
-typedef int (libusb20_root_get_dev_quirk_t)(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq);
-typedef int (libusb20_root_get_quirk_name_t)(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq);
-typedef int (libusb20_root_add_dev_quirk_t)(struct libusb20_backend *pbe, struct libusb20_quirk *pq);
-typedef int (libusb20_root_remove_dev_quirk_t)(struct libusb20_backend *pbe, struct libusb20_quirk *pq);
+typedef int (libusb20_root_get_dev_quirk_t)(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq, int cfd);
+typedef int (libusb20_root_get_quirk_name_t)(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq, int cfd);
+typedef int (libusb20_root_add_dev_quirk_t)(struct libusb20_backend *pbe, struct libusb20_quirk *pq, int cfd);
+typedef int (libusb20_root_remove_dev_quirk_t)(struct libusb20_backend *pbe, struct libusb20_quirk *pq, int cfd);
 typedef int (libusb20_close_device_t)(struct libusb20_device *pdev);
 typedef int (libusb20_dev_get_info_t)(struct libusb20_device *pdev, struct usb_device_info *pinfo);
 typedef int (libusb20_dev_get_iface_desc_t)(struct libusb20_device *pdev, uint8_t iface_index, char *buf, uint8_t len);
-typedef int (libusb20_init_backend_t)(struct libusb20_backend *pbe);
-typedef int (libusb20_open_device_t)(struct libusb20_device *pdev, uint16_t transfer_count_max);
+typedef int (libusb20_init_backend_t)(struct libusb20_backend *pbe, int cfd, int usb_dfd);
+typedef int (libusb20_open_device_t)(struct libusb20_device *pdev, uint16_t transfer_count_max, int usb_dfd);
 typedef void (libusb20_exit_backend_t)(struct libusb20_backend *pbe);
-typedef int (libusb20_root_set_template_t)(struct libusb20_backend *pbe, int temp);
-typedef int (libusb20_root_get_template_t)(struct libusb20_backend *pbe, int *ptemp);
+typedef int (libusb20_root_set_template_t)(struct libusb20_backend *pbe, int temp, int cfd);
+typedef int (libusb20_root_get_template_t)(struct libusb20_backend *pbe, int *ptemp, int cfd);
+typedef const char* (libusb20_backend_get_path_t)(enum libusb20_path_type ptype);
 
 #define	LIBUSB20_DEFINE(n,field) \
   libusb20_##field##_t *field;
@@ -81,6 +82,7 @@ typedef int (libusb20_root_get_template_t)(struct libusb20_backend *pbe, int *pt
   /* mandatory device methods */ \
   m(n, open_device) \
   m(n, close_device) \
+  m(n, backend_get_path) \
 
 struct libusb20_backend_methods {
 	LIBUSB20_BACKEND(LIBUSB20_DEFINE,)

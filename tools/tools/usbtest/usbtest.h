@@ -65,4 +65,7 @@ extern int get_integer(void);
 extern uint8_t usb_ts_show_menu(uint8_t, const char *, const char *,...);
 extern int32_t usb_ts_rand_noise(void);
 
+extern int usb_ctrl_fd;
+extern int usbd_fd;
+
 #endif				/* _USBTEST_H_ */

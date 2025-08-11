@@ -551,11 +551,10 @@ dump_device_info(struct libusb20_device *pdev, uint8_t show_ifdrv,
 	else
 		printf("%s, cfg=%u md=%s spd=%s pwr=%s (%umA)\n",
 		    desc ? desc : libusb20_dev_get_desc(pdev),
-		    libusb20_dev_get_config_index(pdev),
+		    libusb20_dev_get_config_index(pdev, usbd_fd),
 		    dump_mode(libusb20_dev_get_mode(pdev)),
 		    dump_speed(libusb20_dev_get_speed(pdev)),
-		    dump_power_mode(libusb20_dev_get_power_mode(pdev)),
-		    usage);
+		    dump_power_mode(libusb20_dev_get_power_mode(pdev)), usage);
 	free(desc);
 
 	if (list_mode || !show_ifdrv)
@@ -584,8 +583,7 @@ dump_be_quirk_names(struct libusb20_backend *pbe)
 	printf("\nDumping list of supported quirks:\n\n");
 
 	for (x = 0; x != 0xFFFF; x++) {
-
-		error = libusb20_be_get_quirk_name(pbe, x, &q);
+		error = libusb20_be_get_quirk_name(pbe, x, &q, usb_ctrl_fd);
 		if (error) {
 			if (x == 0) {
 				printf("No quirk names - maybe the USB quirk "
@@ -611,8 +609,7 @@ dump_be_dev_quirks(struct libusb20_backend *pbe)
 	printf("\nDumping current device quirks:\n\n");
 
 	for (x = 0; x != 0xFFFF; x++) {
-
-		error = libusb20_be_get_dev_quirk(pbe, x, &q);
+		error = libusb20_be_get_dev_quirk(pbe, x, &q, usb_ctrl_fd);
 		if (error) {
 			if (x == 0) {
 				printf("No device quirks - maybe the USB quirk "
@@ -665,13 +662,12 @@ dump_config(struct libusb20_device *pdev, uint8_t all_cfg)
 		cfg_index = 0;
 		cfg_index_end = ddesc->bNumConfigurations;
 	} else {
-		cfg_index = libusb20_dev_get_config_index(pdev);
+		cfg_index = libusb20_dev_get_config_index(pdev, usbd_fd);
 		cfg_index_end = cfg_index + 1;
 	}
 
 	for (; cfg_index != cfg_index_end; cfg_index++) {
-
-		pcfg = libusb20_dev_alloc_config(pdev, cfg_index);
+		pcfg = libusb20_dev_alloc_config(pdev, cfg_index, usbd_fd);
 		if (!pcfg) {
 			continue;
 		}
@@ -738,7 +734,7 @@ dump_device_stats(struct libusb20_device *pdev)
 {
 	struct libusb20_device_stats st;
 
-	if (libusb20_dev_get_stats(pdev, &st)) {
+	if (libusb20_dev_get_stats(pdev, &st, usbd_fd)) {
 		printf("{}\n");
 	} else {
 		printf("{\n"

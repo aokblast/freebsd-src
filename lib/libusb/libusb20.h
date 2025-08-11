@@ -173,6 +173,14 @@ enum {
 	LIBUSB20_POWER_RESUME,
 };
 
+/** \ingroup misc
+ * libusb20_be_get_path() values
+ */
+enum libusb20_path_type {
+	LIBUSB20_PATH_CTRL,
+	LIBUSB20_PATH_USBD_PATH,
+};
+
 struct usb_device_info;
 struct libusb20_transfer;
 struct libusb20_backend;
@@ -251,9 +259,9 @@ int	libusb20_dev_attach_kernel_driver(struct libusb20_device *pdev,
 int	libusb20_dev_set_config_index(struct libusb20_device *pdev, uint8_t configIndex);
 int	libusb20_dev_get_debug(struct libusb20_device *pdev);
 int	libusb20_dev_get_fd(struct libusb20_device *pdev);
-int	libusb20_dev_get_stats(struct libusb20_device *pdev, struct libusb20_device_stats *pstat);
+int	libusb20_dev_get_stats(struct libusb20_device *pdev, struct libusb20_device_stats *pstat, int usb_dfd);
 int	libusb20_dev_kernel_driver_active(struct libusb20_device *pdev, uint8_t iface_index);
-int	libusb20_dev_open(struct libusb20_device *pdev, uint16_t transfer_max);
+int	libusb20_dev_open(struct libusb20_device *pdev, uint16_t transfer_max, int usb_dfd);
 int	libusb20_dev_process(struct libusb20_device *pdev);
 int	libusb20_dev_request_sync(struct libusb20_device *pdev, struct LIBUSB20_CONTROL_SETUP_DECODED *setup, void *data, uint16_t *pactlen, uint32_t timeout, uint8_t flags);
 int	libusb20_dev_req_string_sync(struct libusb20_device *pdev, uint8_t index, uint16_t langid, void *ptr, uint16_t len);
@@ -269,7 +277,7 @@ int	libusb20_dev_get_info(struct libusb20_device *pdev, struct usb_device_info *
 int	libusb20_dev_get_iface_desc(struct libusb20_device *pdev, uint8_t iface_index, char *buf, uint8_t len);
 
 struct LIBUSB20_DEVICE_DESC_DECODED *libusb20_dev_get_device_desc(struct libusb20_device *pdev);
-struct libusb20_config *libusb20_dev_alloc_config(struct libusb20_device *pdev, uint8_t config_index);
+struct libusb20_config *libusb20_dev_alloc_config(struct libusb20_device *pdev, uint8_t config_index, int usb_dfd);
 struct libusb20_device *libusb20_dev_alloc(void);
 uint8_t	libusb20_dev_get_address(struct libusb20_device *pdev);
 uint8_t	libusb20_dev_get_parent_address(struct libusb20_device *pdev);
@@ -277,27 +285,28 @@ uint8_t	libusb20_dev_get_parent_port(struct libusb20_device *pdev);
 uint8_t	libusb20_dev_get_bus_number(struct libusb20_device *pdev);
 uint8_t	libusb20_dev_get_mode(struct libusb20_device *pdev);
 uint8_t	libusb20_dev_get_speed(struct libusb20_device *pdev);
-uint8_t	libusb20_dev_get_config_index(struct libusb20_device *pdev);
+uint8_t	libusb20_dev_get_config_index(struct libusb20_device *pdev, int usb_dfd);
 void	libusb20_dev_free(struct libusb20_device *pdev);
 void	libusb20_dev_set_debug(struct libusb20_device *pdev, int debug);
 void	libusb20_dev_wait_process(struct libusb20_device *pdev, int timeout);
 
 /* USB global operations */
 
-int	libusb20_be_get_dev_quirk(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq);
-int	libusb20_be_get_quirk_name(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq);
-int	libusb20_be_add_dev_quirk(struct libusb20_backend *pbe, struct libusb20_quirk *pq);
-int	libusb20_be_remove_dev_quirk(struct libusb20_backend *pbe, struct libusb20_quirk *pq);
-int	libusb20_be_get_template(struct libusb20_backend *pbe, int *ptemp);
-int	libusb20_be_set_template(struct libusb20_backend *pbe, int temp);
+int	libusb20_be_get_dev_quirk(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq, int cfd);
+int	libusb20_be_get_quirk_name(struct libusb20_backend *pbe, uint16_t index, struct libusb20_quirk *pq, int cfd);
+int	libusb20_be_add_dev_quirk(struct libusb20_backend *pbe, struct libusb20_quirk *pq, int cfd);
+int	libusb20_be_remove_dev_quirk(struct libusb20_backend *pbe, struct libusb20_quirk *pq, int cfd);
+int	libusb20_be_get_template(struct libusb20_backend *pbe, int *ptemp, int cfd);
+int	libusb20_be_set_template(struct libusb20_backend *pbe, int temp, int cfd);
 
 /* USB backend operations */
 
-struct libusb20_backend *libusb20_be_alloc(const struct libusb20_backend_methods *methods);
-struct libusb20_backend *libusb20_be_alloc_default(void);
+struct libusb20_backend *libusb20_be_alloc(const struct libusb20_backend_methods *methods, int cfd, int usb_dfd);
+struct libusb20_backend *libusb20_be_alloc_default(int cfd, int usb_dfd);
 struct libusb20_backend *libusb20_be_alloc_freebsd(void);
 struct libusb20_backend *libusb20_be_alloc_linux(void);
-struct libusb20_backend *libusb20_be_alloc_ugen20(void);
+struct libusb20_backend *libusb20_be_alloc_ugen20(int cfd, int usb_dfd);
+const char *libusb20_be_get_path(enum libusb20_path_type ptype);
 struct libusb20_device *libusb20_be_device_foreach(struct libusb20_backend *pbe, struct libusb20_device *pdev);
 void	libusb20_be_dequeue_device(struct libusb20_backend *pbe, struct libusb20_device *pdev);
 void	libusb20_be_enqueue_device(struct libusb20_backend *pbe, struct libusb20_device *pdev);

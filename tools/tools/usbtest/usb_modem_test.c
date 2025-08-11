@@ -458,7 +458,7 @@ exec_host_modem_test(struct modem *p, struct uaddr uaddr)
 	printf("Attaching to: %s @ iface %d\n",
 	    libusb20_dev_get_desc(pdev), iface);
 
-	if (libusb20_dev_open(pdev, 2)) {
+	if (libusb20_dev_open(pdev, 2, usbd_fd)) {
 		printf("Could not open USB device\n");
 		libusb20_dev_free(pdev);
 		return;

@@ -669,7 +669,8 @@ libusb20_dev_kernel_driver_active(struct libusb20_device *pdev, uint8_t ifaceInd
 }
 
 int
-libusb20_dev_open(struct libusb20_device *pdev, uint16_t nTransferMax)
+libusb20_dev_open(struct libusb20_device *pdev, uint16_t nTransferMax,
+    int usb_dfd)
 {
 	struct libusb20_transfer *xfer;
 	uint32_t size;
@@ -702,7 +703,7 @@ libusb20_dev_open(struct libusb20_device *pdev, uint16_t nTransferMax)
 	/* set "nTransfer" early */
 	pdev->nTransfer = nTransferMax;
 
-	error = pdev->beMethods->open_device(pdev, nTransferMax);
+	error = pdev->beMethods->open_device(pdev, nTransferMax, usb_dfd);
 
 	if (error) {
 		if (pdev->pTransfer != NULL) {
@@ -963,7 +964,8 @@ libusb20_dev_req_string_simple_sync(struct libusb20_device *pdev,
 }
 
 struct libusb20_config *
-libusb20_dev_alloc_config(struct libusb20_device *pdev, uint8_t configIndex)
+libusb20_dev_alloc_config(struct libusb20_device *pdev, uint8_t configIndex,
+    int usb_dfd)
 {
 	struct libusb20_config *retval = NULL;
 	uint8_t *ptr;
@@ -980,7 +982,7 @@ libusb20_dev_alloc_config(struct libusb20_device *pdev, uint8_t configIndex)
 		return (NULL);
 
 	if (!pdev->is_opened) {
-		error = libusb20_dev_open(pdev, 0);
+		error = libusb20_dev_open(pdev, 0, usb_dfd);
 		if (error) {
 			return (NULL);
 		}
@@ -1025,14 +1027,14 @@ libusb20_dev_alloc(void)
 }
 
 uint8_t
-libusb20_dev_get_config_index(struct libusb20_device *pdev)
+libusb20_dev_get_config_index(struct libusb20_device *pdev, int usb_dfd)
 {
 	int error;
 	uint8_t cfg_index;
 	uint8_t do_close;
 
 	if (!pdev->is_opened) {
-		error = libusb20_dev_open(pdev, 0);
+		error = libusb20_dev_open(pdev, 0, usb_dfd);
 		if (error == 0) {
 			do_close = 1;
 		} else {
@@ -1066,13 +1068,14 @@ libusb20_dev_get_speed(struct libusb20_device *pdev)
 }
 
 int
-libusb20_dev_get_stats(struct libusb20_device *pdev, struct libusb20_device_stats *pstats)
+libusb20_dev_get_stats(struct libusb20_device *pdev,
+    struct libusb20_device_stats *pstats, int usb_dfd)
 {
 	uint8_t do_close;
 	int error;
 
 	if (!pdev->is_opened) {
-		error = libusb20_dev_open(pdev, 0);
+		error = libusb20_dev_open(pdev, 0, usb_dfd);
 		if (error == 0) {
 			do_close = 1;
 		} else {
@@ -1209,48 +1212,48 @@ libusb20_dev_get_iface_desc(struct libusb20_device *pdev,
 /* USB backend operations */
 
 int
-libusb20_be_get_dev_quirk(struct libusb20_backend *pbe,
-    uint16_t quirk_index, struct libusb20_quirk *pq)
+libusb20_be_get_dev_quirk(struct libusb20_backend *pbe, uint16_t quirk_index,
+    struct libusb20_quirk *pq, int cfd)
 {
-	return (pbe->methods->root_get_dev_quirk(pbe, quirk_index, pq));
+	return (pbe->methods->root_get_dev_quirk(pbe, quirk_index, pq, cfd));
 }
 
 int
-libusb20_be_get_quirk_name(struct libusb20_backend *pbe,
-    uint16_t quirk_index, struct libusb20_quirk *pq)
+libusb20_be_get_quirk_name(struct libusb20_backend *pbe, uint16_t quirk_index,
+    struct libusb20_quirk *pq, int cfd)
 {
-	return (pbe->methods->root_get_quirk_name(pbe, quirk_index, pq));
+	return (pbe->methods->root_get_quirk_name(pbe, quirk_index, pq, cfd));
 }
 
 int
 libusb20_be_add_dev_quirk(struct libusb20_backend *pbe,
-    struct libusb20_quirk *pq)
+    struct libusb20_quirk *pq, int cfd)
 {
-	return (pbe->methods->root_add_dev_quirk(pbe, pq));
+	return (pbe->methods->root_add_dev_quirk(pbe, pq, cfd));
 }
 
 int
 libusb20_be_remove_dev_quirk(struct libusb20_backend *pbe,
-    struct libusb20_quirk *pq)
+    struct libusb20_quirk *pq, int cfd)
 {
-	return (pbe->methods->root_remove_dev_quirk(pbe, pq));
+	return (pbe->methods->root_remove_dev_quirk(pbe, pq, cfd));
 }
 
 int
-libusb20_be_set_template(struct libusb20_backend *pbe, int temp)
+libusb20_be_set_template(struct libusb20_backend *pbe, int temp, int cfd)
 {
-	return (pbe->methods->root_set_template(pbe, temp));
+	return (pbe->methods->root_set_template(pbe, temp, cfd));
 }
 
 int
-libusb20_be_get_template(struct libusb20_backend *pbe, int *ptemp)
+libusb20_be_get_template(struct libusb20_backend *pbe, int *ptemp, int cfd)
 {
 	int temp;
 
 	if (ptemp == NULL)
 		ptemp = &temp;
 
-	return (pbe->methods->root_get_template(pbe, ptemp));
+	return (pbe->methods->root_get_template(pbe, ptemp, cfd));
 }
 
 struct libusb20_device *
@@ -1267,7 +1270,8 @@ libusb20_be_device_foreach(struct libusb20_backend *pbe, struct libusb20_device 
 }
 
 struct libusb20_backend *
-libusb20_be_alloc(const struct libusb20_backend_methods *methods)
+libusb20_be_alloc(const struct libusb20_backend_methods *methods, int cfd,
+    int usb_dfd)
 {
 	struct libusb20_backend *pbe;
 
@@ -1283,7 +1287,7 @@ libusb20_be_alloc(const struct libusb20_backend_methods *methods)
 
 	/* do the initial device scan */
 	if (pbe->methods->init_backend) {
-		pbe->methods->init_backend(pbe);
+		pbe->methods->init_backend(pbe, cfd, usb_dfd);
 	}
 	return (pbe);
 }
@@ -1295,13 +1299,13 @@ libusb20_be_alloc_linux(void)
 }
 
 struct libusb20_backend *
-libusb20_be_alloc_ugen20(void)
+libusb20_be_alloc_ugen20(int cfd, int usb_dfd)
 {
-	return (libusb20_be_alloc(&libusb20_ugen20_backend));
+	return (libusb20_be_alloc(&libusb20_ugen20_backend, cfd, usb_dfd));
 }
 
 struct libusb20_backend *
-libusb20_be_alloc_default(void)
+libusb20_be_alloc_default(int cfd, int usb_dfd)
 {
 	struct libusb20_backend *pbe;
 
@@ -1311,11 +1315,17 @@ libusb20_be_alloc_default(void)
 		return (pbe);
 	}
 #endif
-	pbe = libusb20_be_alloc_ugen20();
+	pbe = libusb20_be_alloc_ugen20(cfd, usb_dfd);
 	if (pbe) {
 		return (pbe);
 	}
 	return (NULL);			/* no backend found */
+}
+
+const char *
+libusb20_be_get_path(enum libusb20_path_type ptype)
+{
+	return (libusb20_ugen20_backend).backend_get_path(ptype);
 }
 
 void
