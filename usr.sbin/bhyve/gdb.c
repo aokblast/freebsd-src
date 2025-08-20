@@ -107,6 +107,7 @@ static pthread_mutex_t gdb_lock;
 static pthread_cond_t idle_vcpus;
 static bool first_stop, report_next_stop, swbreak_enabled;
 static int xml_dfd = -1;
+static bool wait;
 
 /*
  * An I/O buffer contains 'capacity' bytes of room at 'data'.  For a
@@ -2150,7 +2151,10 @@ new_connection(int fd, enum ev_type event __unused, void *arg)
 	cur_fd = s;
 	cur_vcpu = 0;
 	stopped_vcpu = -1;
-	bhyve_init_notify();
+	if (wait) {
+		bhyve_init_notify();
+		wait = false;
+	}
 
 	/* Break on attach. */
 	first_stop = true;
@@ -2186,7 +2190,6 @@ init_gdb(struct vmctx *_ctx)
 	struct addrinfo *gdbaddr;
 	const char *saddr, *value;
 	char *sport;
-	bool wait;
 
 	value = get_config_value("gdb.port");
 	if (value == NULL)
