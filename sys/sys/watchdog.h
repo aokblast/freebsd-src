@@ -83,6 +83,7 @@
 
 /* Handy macros for humans not used to power of two nanoseconds */
 #define WD_TO_NEVER	0
+#define WD_TO_1US	10
 #define WD_TO_1MS	20
 #define WD_TO_125MS	27
 #define WD_TO_250MS	28
