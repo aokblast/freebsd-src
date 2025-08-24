@@ -395,8 +395,10 @@ static ACPI_STATUS
 acpi_iicbus_parse_resources_cb(ACPI_RESOURCE *res, void *context)
 {
 	device_t dev = context;
+	device_t intr_dev;
 	struct iicbus_ivar *super_devi = device_get_ivars(dev);
 	struct resource_list *rl = &super_devi->rl;
+	ACPI_HANDLE handle;
 	int irq, gpio_pin;
 
 	switch(res->Type) {
@@ -416,6 +418,16 @@ acpi_iicbus_parse_resources_cb(ACPI_RESOURCE *res, void *context)
 			gpio_pin = res->Data.Gpio.PinTable[0];
 			if (bootverbose)
 				printf("  GPIO IRQ pin:      %d\n", gpio_pin);
+			if (!ACPI_SUCCESS(AcpiGetHandle(ACPI_ROOT_OBJECT,
+				res->Data.Gpio.ResourceSource.StringPtr,
+				&handle)))
+				printf(
+				    "  Cannot found interrupt source for gpio intr\n");
+			intr_dev = acpi_get_device(handle);
+			super_devi->intr_dev = intr_dev;
+			resource_list_add_next(rl, SYS_RES_IRQ, gpio_pin,
+			    gpio_pin, 1);
+			acpi_config_intr(intr_dev, res);
 			return (AE_CTRL_TERMINATE);
 		}
 		break;

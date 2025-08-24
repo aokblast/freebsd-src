@@ -173,6 +173,13 @@ acpi_config_intr(device_t dev, ACPI_RESOURCE *res)
 	trig = res->Data.ExtendedIrq.Triggering;
 	pol = res->Data.ExtendedIrq.Polarity;
 	break;
+	case ACPI_RESOURCE_TYPE_GPIO:
+	KASSERT(res->Data.Gpio.PinTableLength == 2,
+	    ("%s: multiple interrupts", __func__));
+	irq = res->Data.Gpio.PinTable[0];
+	trig = res->Data.Gpio.Triggering;
+	pol = res->Data.Gpio.Polarity;
+	break;
     default:
 	panic("%s: bad resource type %u", __func__, res->Type);
     }

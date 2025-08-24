@@ -235,6 +235,7 @@ iicbus_add_child_common(device_t dev, u_int order, const char *name, int unit,
 		device_delete_child(dev, child);
 		return (0);
 	}
+	devi->intr_dev = NULL;
 	resource_list_init(&devi->rl);
 	device_set_ivars(child, devi);
 	return (child);
@@ -352,38 +353,53 @@ iicbus_get_frequency(device_t dev, u_char speed)
 	return (sc->bus_freq);
 }
 
+static int
+iicbus_setup_intr(device_t dev, device_t child, struct resource *irq, int flags,
+    driver_filter_t *filter, driver_intr_t *intr, void *arg, void **cookiep)
+{
+	struct iicbus_ivar *ivar = device_get_ivars(child);
+
+	if (ivar->intr_dev != NULL) {
+		return (BUS_SETUP_INTR(ivar->intr_dev, child, irq, flags,
+		    filter, intr, arg, cookiep));
+	}
+
+	return bus_generic_setup_intr(dev, child, irq, flags, filter, intr, arg,
+	    cookiep);
+}
+
 static device_method_t iicbus_methods[] = {
 	/* device interface */
-	DEVMETHOD(device_probe,		iicbus_probe),
-	DEVMETHOD(device_attach,	iicbus_attach),
-	DEVMETHOD(device_detach,	iicbus_detach),
-	DEVMETHOD(device_suspend,	bus_generic_suspend),
-	DEVMETHOD(device_resume,	bus_generic_resume),
+	DEVMETHOD(device_probe, iicbus_probe),
+	DEVMETHOD(device_attach, iicbus_attach),
+	DEVMETHOD(device_detach, iicbus_detach),
+	DEVMETHOD(device_suspend, bus_generic_suspend),
+	DEVMETHOD(device_resume, bus_generic_resume),
 
 	/* bus interface */
-	DEVMETHOD(bus_setup_intr,	bus_generic_setup_intr),
-	DEVMETHOD(bus_teardown_intr,	bus_generic_teardown_intr),
+	DEVMETHOD(bus_setup_intr, iicbus_setup_intr),
+	DEVMETHOD(bus_teardown_intr, bus_generic_teardown_intr),
 	DEVMETHOD(bus_activate_resource, bus_generic_activate_resource),
 	DEVMETHOD(bus_deactivate_resource, bus_generic_deactivate_resource),
-	DEVMETHOD(bus_adjust_resource,	bus_generic_adjust_resource),
-	DEVMETHOD(bus_alloc_resource,	bus_generic_rl_alloc_resource),
-	DEVMETHOD(bus_get_resource,	bus_generic_rl_get_resource),
+	DEVMETHOD(bus_adjust_resource, bus_generic_adjust_resource),
+	DEVMETHOD(bus_alloc_resource, bus_generic_rl_alloc_resource),
+	DEVMETHOD(bus_get_resource, bus_generic_rl_get_resource),
 	DEVMETHOD(bus_release_resource, bus_generic_rl_release_resource),
-	DEVMETHOD(bus_set_resource,	bus_generic_rl_set_resource),
+	DEVMETHOD(bus_set_resource, bus_generic_rl_set_resource),
 	DEVMETHOD(bus_get_resource_list, iicbus_get_resource_list),
-	DEVMETHOD(bus_add_child,	iicbus_add_child),
-	DEVMETHOD(bus_child_deleted,	iicbus_child_deleted),
-	DEVMETHOD(bus_print_child,	iicbus_print_child),
-	DEVMETHOD(bus_probe_nomatch,	iicbus_probe_nomatch),
-	DEVMETHOD(bus_read_ivar,	iicbus_read_ivar),
-	DEVMETHOD(bus_write_ivar,	iicbus_write_ivar),
-	DEVMETHOD(bus_child_pnpinfo,	iicbus_child_pnpinfo),
-	DEVMETHOD(bus_child_location,	iicbus_child_location),
-	DEVMETHOD(bus_hinted_child,	iicbus_hinted_child),
+	DEVMETHOD(bus_add_child, iicbus_add_child),
+	DEVMETHOD(bus_child_deleted, iicbus_child_deleted),
+	DEVMETHOD(bus_print_child, iicbus_print_child),
+	DEVMETHOD(bus_probe_nomatch, iicbus_probe_nomatch),
+	DEVMETHOD(bus_read_ivar, iicbus_read_ivar),
+	DEVMETHOD(bus_write_ivar, iicbus_write_ivar),
+	DEVMETHOD(bus_child_pnpinfo, iicbus_child_pnpinfo),
+	DEVMETHOD(bus_child_location, iicbus_child_location),
+	DEVMETHOD(bus_hinted_child, iicbus_hinted_child),
 
 	/* iicbus interface */
-	DEVMETHOD(iicbus_transfer,	iicbus_transfer),
-	DEVMETHOD(iicbus_get_frequency,	iicbus_get_frequency),
+	DEVMETHOD(iicbus_transfer, iicbus_transfer),
+	DEVMETHOD(iicbus_get_frequency, iicbus_get_frequency),
 
 	DEVMETHOD_END
 };

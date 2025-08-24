@@ -53,6 +53,7 @@ struct iicbus_ivar
 {
 	uint32_t	addr;
 	struct resource_list	rl;
+	device_t intr_dev;
 };
 
 /* Value of 0x100 is reserved for ACPI_IVAR_HANDLE used by acpi_iicbus */
