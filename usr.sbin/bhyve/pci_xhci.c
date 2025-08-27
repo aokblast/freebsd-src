@@ -692,6 +692,19 @@ pci_xhci_init_ep(struct pci_xhci_dev_emu *dev, int epid)
 }
 
 static void
+pci_xhci_clear_ep_xfer(struct pci_xhci_dev_emu *dev, struct usb_data_xfer *xfer)
+{
+	USB_DATA_XFER_LOCK(xfer);
+	if (dev->dev_ue->ue_cancel)
+		(void)dev->dev_ue->ue_cancel(xfer);
+	if (xfer->ureq)
+		free(xfer->ureq);
+	xfer->ureq = NULL;
+	USB_DATA_XFER_UNLOCK(xfer);
+	pthread_mutex_destroy(&xfer->mtx);
+}
+
+static void
 pci_xhci_disable_ep(struct pci_xhci_dev_emu *dev, int epid)
 {
 	struct xhci_dev_ctx    *dev_ctx;
@@ -709,6 +722,7 @@ pci_xhci_disable_ep(struct pci_xhci_dev_emu *dev, int epid)
 		free(devep->ep_sctx_trbs);
 
 	if (devep->ep_xfer != NULL) {
+		pci_xhci_clear_ep_xfer(dev, devep->ep_xfer);
 		free(devep->ep_xfer);
 		devep->ep_xfer = NULL;
 	}
@@ -722,6 +736,8 @@ static void
 pci_xhci_reset_slot(struct pci_xhci_softc *sc, int slot)
 {
 	struct pci_xhci_dev_emu *dev;
+	struct usb_data_xfer *xfer;
+	int ep;
 
 	dev = XHCI_SLOTDEV_PTR(sc, slot);
 
@@ -729,9 +745,20 @@ pci_xhci_reset_slot(struct pci_xhci_softc *sc, int slot)
 		DPRINTF(("xhci reset unassigned slot (%d)?", slot));
 	} else {
 		dev->dev_slotstate = XHCI_ST_DISABLED;
+		for (ep = 0; ep < XHCI_MAX_ENDPOINTS; ++ep) {
+			xfer = dev->eps[ep].ep_xfer;
+			if (xfer) {
+				USB_DATA_XFER_LOCK(xfer);
+				if (dev->dev_ue->ue_cancel)
+					(void)dev->dev_ue->ue_cancel(xfer);
+				if (xfer->ureq)
+					free(xfer->ureq);
+				xfer->ureq = NULL;
+				USB_DATA_XFER_UNLOCK(xfer);
+				USB_DATA_XFER_RESET(xfer);
+			}
+		}
 	}
-
-	/* TODO: reset ring buffer pointers */
 }
 
 static int
@@ -1193,11 +1220,13 @@ pci_xhci_cmd_reset_ep(struct pci_xhci_softc *sc, uint32_t slot,
 	        epid, ep_ctx->dwEpCtx0, ep_ctx->dwEpCtx1, ep_ctx->qwEpCtx2,
 	        ep_ctx->dwEpCtx4));
 
-	if (type == XHCI_TRB_TYPE_RESET_EP &&
-	    (dev->dev_ue->ue_reset == NULL ||
-	    dev->dev_ue->ue_reset(dev->dev_sc) < 0)) {
-		cmderr = XHCI_TRB_ERROR_ENDP_NOT_ON;
-		goto done;
+	if (type == XHCI_TRB_TYPE_STOP_EP && devep->ep_xfer != NULL) {
+		USB_DATA_XFER_LOCK(devep->ep_xfer);
+		if (dev->dev_ue->ue_cancel == NULL ||
+		    dev->dev_ue->ue_cancel(devep->ep_xfer) !=
+			USB_ERR_NORMAL_COMPLETION)
+			cmderr = XHCI_TRB_ERROR_ENDP_NOT_ON;
+		USB_DATA_XFER_UNLOCK(devep->ep_xfer);
 	}
 
 done:
