@@ -63,6 +63,7 @@ struct usb_devemu {
 	int	(*ue_remove)(void *sc);
 	int	(*ue_stop)(void *sc);
 	int	(*ue_snapshot)(void *scarg, struct vm_snapshot_meta *meta);
+	int	(*ue_cancel)(struct usb_data_xfer *xfer);
 };
 #define	USB_EMUL_SET(x)		DATA_SET(usb_emu_set, x)
 
