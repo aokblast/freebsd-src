@@ -502,7 +502,9 @@ libusb_control_transfer(libusb_device_handle *devh,
 		return (LIBUSB_ERROR_PIPE);
 	else if (err == LIBUSB20_ERROR_TIMEOUT)
 		return (LIBUSB_ERROR_TIMEOUT);
-	else if (err)
+	else if (err == LIBUSB_ERROR_INTERRUPTED)
+		return (LIBUSB_ERROR_IO);
+	else if (err < 0)
 		return (LIBUSB_ERROR_NO_DEVICE);
 
 	return (actlen);

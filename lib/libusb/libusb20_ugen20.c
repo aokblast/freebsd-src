@@ -98,6 +98,41 @@ static const struct libusb20_device_methods libusb20_ugen20_device_methods = {
 	LIBUSB20_DEVICE(LIBUSB20_DECLARE, ugen20)
 };
 
+static int
+errno_to_libusb_error(int uerr)
+{
+	switch (uerr) {
+	case 0:
+		return (LIBUSB20_SUCCESS);
+	case EIO:
+		return (LIBUSB20_ERROR_IO);
+	case EINVAL:
+		return (LIBUSB20_ERROR_INVALID_PARAM);
+	case EACCES:
+		return (LIBUSB20_ERROR_ACCESS);
+	case ENXIO:
+		return (LIBUSB20_ERROR_NO_DEVICE);
+	case EFAULT:
+		return (LIBUSB20_ERROR_NOT_FOUND);
+	case EBUSY:
+		return (LIBUSB20_ERROR_BUSY);
+	case ETIMEDOUT:
+		return (LIBUSB20_ERROR_TIMEOUT);
+	case EMSGSIZE:
+		return (LIBUSB20_ERROR_OVERFLOW);
+	case EPIPE:
+		return (LIBUSB20_ERROR_PIPE);
+	case EAGAIN:
+		return (LIBUSB20_ERROR_INTERRUPTED);
+	case ENOMEM:
+		return (LIBUSB20_ERROR_NO_MEM);
+	case ENOTSUP:
+		return (LIBUSB20_ERROR_NOT_SUPPORTED);
+	default:
+		return (LIBUSB20_ERROR_OTHER);
+	}
+}
+
 static const char *
 ugen20_get_backend_name(void)
 {
@@ -749,6 +784,7 @@ ugen20_do_request_sync(struct libusb20_device *pdev,
     void *data, uint16_t *pactlen, uint32_t timeout, uint8_t flags)
 {
 	struct usb_ctl_request req;
+	int err;
 
 	memset(&req, 0, sizeof(req));
 
@@ -760,8 +796,8 @@ ugen20_do_request_sync(struct libusb20_device *pdev,
 	    sizeof(req.ucr_request), setup)) {
 		/* ignore */
 	}
-	if (ioctl(pdev->file_ctrl, IOUSB(USB_DO_REQUEST), &req)) {
-		return (LIBUSB20_ERROR_OTHER);
+	if ((err = ioctl(pdev->file_ctrl, IOUSB(USB_DO_REQUEST), &req))) {
+		return (errno_to_libusb_error(err));
 	}
 	if (pactlen) {
 		/* get actual length */
@@ -1027,7 +1063,7 @@ ugen20_root_get_dev_quirk(struct libusb20_backend *pbe, uint16_t quirk_index,
 		pq->bcdDeviceHigh = q.bcdDeviceHigh;
 		strlcpy(pq->quirkname, q.quirkname, sizeof(pq->quirkname));
 	}
-	return (error);
+	return (errno_to_libusb_error(error));
 }
 
 static int
