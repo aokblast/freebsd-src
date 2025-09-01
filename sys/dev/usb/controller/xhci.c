@@ -132,6 +132,14 @@ SYSCTL_INT(_hw_usb_xhci, OID_AUTO, ctlstep, CTLFLAG_RWTUN,
 
 #define	XHCI_INTR_ENDPT 1
 
+/* The link protocol is left out, not every controller sets it for SSP */
+static const uint32_t default_psi_values[] = {
+	0x00050134,	/* SSID=4: 5  Gbps Gen1x1 */
+	0x000a0135,	/* SSID=5: 10 Gbps Gen2x1 */
+	0x000a0136,	/* SSID=6: 10 Gbps Gen1x2 (5G/lane × 2) */
+	0x00140137,	/* SSID=7: 20 Gbps Gen2x2 (10G/lane × 2) */
+};
+
 static void	xhci_do_poll(struct usb_bus *);
 static void	xhci_device_done(struct usb_xfer *, usb_error_t);
 static void	xhci_get_xecp(struct xhci_softc *);
@@ -485,6 +493,84 @@ xhci_reset_controller(struct xhci_softc *sc)
 	return (0);
 }
 
+static enum usb_revision
+xhci_xecp_parse_support_protocol(struct xhci_softc *sc)
+{
+	uint32_t hccp1;
+	uint32_t eec;
+	uint32_t eecp;
+	uint8_t psic_cnt;
+	enum usb_revision rev;
+	enum usb_revision res = USB_REV_3_0;
+
+	hccp1 = XREAD4(sc, capa, XHCI_HCCPARAMS1);
+
+	if (XHCI_HCS0_XECP(hccp1) == 0) {
+		device_printf(sc->sc_bus.parent,
+		    "xECP: no capabilities found\n");
+		return (USB_REV_3_0);
+	}
+
+	eec = -1;
+	for (eecp = XHCI_HCS0_XECP(hccp1) << 2;
+	    eecp != 0 && XHCI_XECP_NEXT(eec) != 0;
+	    eecp += XHCI_XECP_NEXT(eec) << 2) {
+		eec = XREAD4(sc, capa, eecp);
+
+		uint8_t xecpid = XHCI_XECP_ID(eec);
+		uint8_t minor = XHCI_XECP_MINOR(eec);
+		uint32_t val;
+		int i, j, found;
+
+		if (xecpid == XHCI_ID_PROTOCOLS &&
+		    XHCI_XECP_MAJOR(eec) == 0x03) {
+			val = XREAD4(sc, capa, eecp + 0x08);
+			psic_cnt = XHCI_XECP_PSIC_GET(val);
+			/*
+			 * The port revision does not tell the speed, so use
+			 * the PSI table if there is one. Without one we
+			 * cannot tell if there are two lanes.
+			 */
+			rev = (psic_cnt == 0 && minor >= 0x10) ?
+			    USB_REV_3_1 : USB_REV_3_0;
+			for (i = 0; i < psic_cnt; ++i) {
+				val = XREAD4(sc, capa, eecp + 0x10 + i * 4);
+				val &= ~(XHCI_XECP_PSI_RSVD | XHCI_XECP_PSI_LP);
+				found = 0;
+				for (j = 0; j < nitems(default_psi_values);
+				    ++j) {
+					if (val == default_psi_values[j]) {
+						found = 1;
+						break;
+					}
+				}
+				if (!found) {
+					device_printf(sc->sc_bus.parent,
+					    "xECP: not support non-default mapping, fallback to usb 3.0\n");
+					break;
+				}
+				switch (XHCI_XECP_PSIV_GET(val)) {
+				case 5:
+				case 6:
+					rev = MAX(rev, USB_REV_3_1);
+					break;
+				case 7:
+					rev = USB_REV_3_2;
+					break;
+				default:
+					break;
+				}
+			}
+			if (i != psic_cnt)
+				return (USB_REV_3_0);
+
+			res = MAX(res, rev);
+		}
+	}
+
+	return (res);
+}
+
 usb_error_t
 xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 {
@@ -537,6 +623,8 @@ xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 	} else {
 		sc->sc_ctx_is_64_byte = 0;
 	}
+
+	sc->sc_bus.usbrev = xhci_xecp_parse_support_protocol(sc);
 
 	/* get DMA bits */
 	sc->sc_bus.dma_bits = (XHCI_HCS0_AC64(temp) &&
@@ -2531,6 +2619,9 @@ xhci_configure_endpoint(struct usb_device *udev,
 
 		switch (udev->speed) {
 		case USB_SPEED_SUPER:
+		case USB_SPEED_SUPER_PLUS:
+		case USB_SPEED_SUPER_PLUS_X2:
+		case USB_SPEED_SUPER_PLUS_GEN2_X2:
 			if (mult > 3)
 				mult = 3;
 			temp |= XHCI_EPCTX_0_MULT_SET(mult - 1);
@@ -2657,6 +2748,7 @@ xhci_configure_device(struct usb_device *udev)
 	struct usb_page_search buf_inp;
 	struct usb_page_cache *pcinp;
 	struct xhci_slot_ctx *slot;
+	struct usb_device *adev;
 	struct usb_device *hubdev;
 	uint32_t temp;
 	uint32_t route;
@@ -2736,14 +2828,25 @@ xhci_configure_device(struct usb_device *udev)
 			temp |= XHCI_SCTX_0_MTT_SET(1);
 		}
 		break;
+	case USB_SPEED_SUPER:
+		temp |= XHCI_SCTX_0_SPEED_SET(4);
+		break;
+	case USB_SPEED_SUPER_PLUS:
+		temp |= XHCI_SCTX_0_SPEED_SET(5);	/* Gen2x1 */
+		break;
+	case USB_SPEED_SUPER_PLUS_X2:
+		temp |= XHCI_SCTX_0_SPEED_SET(6);	/* Gen1x2 */
+		break;
+	case USB_SPEED_SUPER_PLUS_GEN2_X2:
+		temp |= XHCI_SCTX_0_SPEED_SET(7);	/* Gen2x2 */
+		break;
 	default:
 		temp |= XHCI_SCTX_0_SPEED_SET(4);
 		break;
 	}
 
 	is_hub = sc->sc_hw.devs[index].nports != 0 &&
-	    (udev->speed == USB_SPEED_SUPER ||
-	    udev->speed == USB_SPEED_HIGH);
+	    (udev->speed >= USB_SPEED_HIGH);
 
 	if (is_hub)
 		temp |= XHCI_SCTX_0_HUB_SET(1);
@@ -2777,6 +2880,30 @@ xhci_configure_device(struct usb_device *udev)
 			    hubdev->controller_slot_id);
 			temp |= XHCI_SCTX_2_TT_PORT_NUM_SET(
 			    udev->hs_port_no);
+		}
+		break;
+	case USB_SPEED_SUPER:
+	case USB_SPEED_SUPER_PLUS:
+	case USB_SPEED_SUPER_PLUS_X2:
+	case USB_SPEED_SUPER_PLUS_GEN2_X2:
+		/*
+		 * Per xHCI 1.2 §6.2.2 the parent hub slot ID and port number
+		 * of a SS/SSP device identify the hub which isolates it, that
+		 * is the closest higher rank hub. They must be zero if there
+		 * is none. The root hub has no slot and never qualifies.
+		 */
+		adev = udev;
+		for (hubdev = udev->parent_hub;
+		    hubdev != NULL && hubdev->parent_hub != NULL;
+		    hubdev = hubdev->parent_hub) {
+			if (hubdev->speed > udev->speed) {
+				temp |= XHCI_SCTX_2_TT_HUB_SID_SET(
+				    hubdev->controller_slot_id);
+				temp |= XHCI_SCTX_2_TT_PORT_NUM_SET(
+				    adev->port_no);
+				break;
+			}
+			adev = hubdev;
 		}
 		break;
 	default:
@@ -3277,36 +3404,85 @@ struct usb_device_descriptor xhci_devd =
 	.bNumConfigurations = 1,		/* # of configurations */
 };
 
+/* The capabilities every root HUB BOS descriptor starts with */
+#define	XHCI_BOSD_COMMON(desc, ncaps)					\
+	.bosd = {							\
+		.bLength = sizeof(desc.bosd),				\
+		.bDescriptorType = UDESC_BOS,				\
+		HSETW(.wTotalLength, sizeof(desc)),			\
+		.bNumDeviceCaps = (ncaps),				\
+	},								\
+	.usb2extd = {							\
+		.bLength = sizeof(desc.usb2extd),			\
+		.bDescriptorType = UDESC_DEVICE_CAPABILITY,		\
+		.bDevCapabilityType = 2,				\
+		.bmAttributes[0] = 2,					\
+	},								\
+	.usbdcd = {							\
+		.bLength = sizeof(desc.usbdcd),				\
+		.bDescriptorType = UDESC_DEVICE_CAPABILITY,		\
+		.bDevCapabilityType = 3,				\
+		.bmAttributes = 0, /* XXX */				\
+		HSETW(.wSpeedsSupported, 0x000C),			\
+		.bFunctionalitySupport = 8,				\
+		.bU1DevExitLat = 255,	/* dummy - not used */		\
+		.wU2DevExitLat = { 0x00, 0x08 },			\
+	},								\
+	.cidd = {							\
+		.bLength = sizeof(desc.cidd),				\
+		.bDescriptorType = UDESC_DEVICE_CAPABILITY,		\
+		.bDevCapabilityType = 4,				\
+		.bReserved = 0,						\
+		.bContainerID = 0, /* XXX */				\
+	}
+
 static const
-struct xhci_bos_desc xhci_bosd = {
-	.bosd = {
-		.bLength = sizeof(xhci_bosd.bosd),
-		.bDescriptorType = UDESC_BOS,
-		HSETW(.wTotalLength, sizeof(xhci_bosd)),
-		.bNumDeviceCaps = 3,
-	},
-	.usb2extd = {
-		.bLength = sizeof(xhci_bosd.usb2extd),
-		.bDescriptorType = 1,
-		.bDevCapabilityType = 2,
-		.bmAttributes[0] = 2,
-	},
-	.usbdcd = {
-		.bLength = sizeof(xhci_bosd.usbdcd),
+struct xhci_bos_desc xhci_30_bosd = {
+	XHCI_BOSD_COMMON(xhci_30_bosd, 3),
+};
+
+static const
+struct xhci_ssp_bos_31_desc xhci_31_bosd = {
+	XHCI_BOSD_COMMON(xhci_31_bosd, 4),
+	.ssplus = {
+		.bLength = sizeof(xhci_31_bosd.ssplus) + sizeof(xhci_31_bosd.caps),
 		.bDescriptorType = UDESC_DEVICE_CAPABILITY,
-		.bDevCapabilityType = 3,
-		.bmAttributes = 0, /* XXX */
-		HSETW(.wSpeedsSupported, 0x000C),
-		.bFunctionalitySupport = 8,
-		.bU1DevExitLat = 255,	/* dummy - not used */
-		.wU2DevExitLat = { 0x00, 0x08 },
-	},
-	.cidd = {
-		.bLength = sizeof(xhci_bosd.cidd),
-		.bDescriptorType = 1,
-		.bDevCapabilityType = 4,
+		.bDevCapabilityType = USB_DEVCAP_SUPERSPEED_PLUS,
 		.bReserved = 0,
-		.bContainerID = 0, /* XXX */
+		.bmAttributes = {0x23}, /* SSAC=3, SSIC=1 */
+		.wFunctionalitySupport = {0x04, 0x11}, /* SSID 4, Rx: 1, Tx: 1 */
+		.wReserved = {0},
+	},
+	.caps = {
+		[0] = {0x34, 0x00, 0x05, 0x00}, /* 4: 5   Gbps Gen1x1, Rx */
+		[1] = {0xb4, 0x00, 0x05, 0x00}, /* 4: 5   Gbps Gen1x1, Tx */
+		[2] = {0x35, 0x40, 0x0a, 0x00}, /* 5: 10  Gbps Gen2x1, Rx */
+		[3] = {0xb5, 0x40, 0x0a, 0x00}, /* 5: 10  Gbps Gen2x1, Tx */
+	},
+};
+
+static const
+struct xhci_ssp_bos_32_desc xhci_32_bosd = {
+	XHCI_BOSD_COMMON(xhci_32_bosd, 4),
+	.ssplus = {
+		.bLength = sizeof(xhci_32_bosd.ssplus) + sizeof(xhci_32_bosd.caps),
+		.bDescriptorType = UDESC_DEVICE_CAPABILITY,
+		.bDevCapabilityType = USB_DEVCAP_SUPERSPEED_PLUS,
+		.bReserved = 0,
+		.bmAttributes = {0x67}, /* SSAC=7, SSIC=3 */
+		.wFunctionalitySupport = {0x04, 0x11}, /* SSID 4, Rx: 1, Tx: 1 */
+		.wReserved = {0},
+	},
+	.caps = {
+		/* The speed is per lane */
+		[0] = {0x34, 0x00, 0x05, 0x00}, /* 4: 5   Gbps Gen1x1, Rx */
+		[1] = {0xb4, 0x00, 0x05, 0x00}, /* 4: 5   Gbps Gen1x1, Tx */
+		[2] = {0x35, 0x40, 0x0a, 0x00}, /* 5: 10  Gbps Gen2x1, Rx */
+		[3] = {0xb5, 0x40, 0x0a, 0x00}, /* 5: 10  Gbps Gen2x1, Tx */
+		[4] = {0x36, 0x40, 0x05, 0x00}, /* 6: 5   Gbps Gen1x2, Rx */
+		[5] = {0xb6, 0x40, 0x05, 0x00}, /* 6: 5   Gbps Gen1x2, Tx */
+		[6] = {0x37, 0x40, 0x0a, 0x00}, /* 7: 10  Gbps Gen2x2, Rx */
+		[7] = {0xb7, 0x40, 0x0a, 0x00}, /* 7: 10  Gbps Gen2x2, Tx */
 	},
 };
 
@@ -3361,6 +3537,7 @@ xhci_roothub_exec(struct usb_device *udev,
 	const void *ptr;
 	uint32_t port;
 	uint32_t v;
+	uint32_t pli;
 	uint16_t len;
 	uint16_t i;
 	uint16_t value;
@@ -3404,8 +3581,18 @@ xhci_roothub_exec(struct usb_device *udev,
 				err = USB_ERR_IOERROR;
 				goto done;
 			}
+			sc->sc_hub_desc.devd = xhci_devd;
+			switch (sc->sc_bus.usbrev) {
+			case USB_REV_3_2:
+				USETW(sc->sc_hub_desc.devd.bcdUSB, 0x0320);
+				break;
+			case USB_REV_3_1:
+				USETW(sc->sc_hub_desc.devd.bcdUSB, 0x0310);
+				break;
+			default:
+				break;
+			}
 			len = sizeof(xhci_devd);
-			ptr = (const void *)&xhci_devd;
 			break;
 
 		case UDESC_BOS:
@@ -3413,8 +3600,21 @@ xhci_roothub_exec(struct usb_device *udev,
 				err = USB_ERR_IOERROR;
 				goto done;
 			}
-			len = sizeof(xhci_bosd);
-			ptr = (const void *)&xhci_bosd;
+			switch (sc->sc_bus.usbrev) {
+			case USB_REV_3_2:
+				len = sizeof(xhci_32_bosd);
+				ptr = (const void *)&xhci_32_bosd;
+				break;
+			case USB_REV_3_1:
+				len = sizeof(xhci_31_bosd);
+				ptr = (const void *)&xhci_31_bosd;
+				break;
+			default:
+				len = sizeof(xhci_30_bosd);
+				ptr = (const void *)&xhci_30_bosd;
+				break;
+			}
+
 			break;
 
 		case UDESC_CONFIG:
@@ -3609,8 +3809,9 @@ xhci_roothub_exec(struct usb_device *udev,
 	case C(UR_GET_STATUS, UT_READ_CLASS_OTHER):
 		DPRINTFN(9, "UR_GET_STATUS i=%d\n", index);
 
-		if ((index < 1) ||
-		    (index > sc->sc_noport)) {
+		if ((index < 1) || (index > sc->sc_noport) ||
+		    (value != 0 && value != 2) ||
+		    (value == 2 && sc->sc_bus.usbrev < USB_REV_3_1)) {
 			err = USB_ERR_IOERROR;
 			goto done;
 		}
@@ -3650,6 +3851,14 @@ xhci_roothub_exec(struct usb_device *udev,
 #endif
 		USETW(sc->sc_hub_desc.ps.wPortStatus, i);
 
+		if (value == 2) {
+			i = XHCI_PS_SPEED_GET(v);
+			pli = XREAD4(sc, oper, XHCI_PORTLI(index));
+			USETDW(sc->sc_hub_desc.ext_ps.dwExtPortStatus,
+			    i | (i << 4) | (XHCI_PLI3_RLC_GET(pli) << 8) |
+			    (XHCI_PLI3_TLC_GET(pli) << 12));
+		}
+
 		i = 0;
 		if (v & XHCI_PS_CSC)
 			i |= UPS_C_CONNECT_STATUS;
@@ -3667,7 +3876,8 @@ xhci_roothub_exec(struct usb_device *udev,
 			i |= UPS_C_PORT_CONFIG_ERROR;
 
 		USETW(sc->sc_hub_desc.ps.wPortChange, i);
-		len = sizeof(sc->sc_hub_desc.ps);
+		len = (value == 2) ? sizeof(sc->sc_hub_desc.ext_ps) :
+		    sizeof(sc->sc_hub_desc.ps);
 		break;
 
 	case C(UR_SET_DESCRIPTOR, UT_WRITE_CLASS_DEVICE):
@@ -4441,7 +4651,7 @@ xhci_device_state_change(struct usb_device *udev)
 	DPRINTF("\n");
 
 	if (usb_get_device_state(udev) == USB_STATE_CONFIGURED) {
-		err = uhub_query_info(udev, &sc->sc_hw.devs[index].nports, 
+		err = uhub_query_info(udev, &sc->sc_hw.devs[index].nports,
 		    &sc->sc_hw.devs[index].tt);
 		if (err != 0)
 			sc->sc_hw.devs[index].nports = 0;
