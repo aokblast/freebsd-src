@@ -477,10 +477,29 @@ struct xhci_bos_desc {
 	struct usb_devcap_container_id_descriptor cidd;
 } __packed;
 
+struct xhci_ssp_bos_31_desc {
+	struct usb_bos_descriptor		bosd;
+	struct usb_devcap_usb2ext_descriptor	usb2extd;
+	struct usb_devcap_ss_descriptor		usbdcd;
+	struct usb_devcap_container_id_descriptor cidd;
+	struct usb_devcap_ss_plus_descriptor_header ssplus;
+	uDWord caps[5];
+} __packed;
+
+struct xhci_ssp_bos_32_desc {
+	struct usb_bos_descriptor		bosd;
+	struct usb_devcap_usb2ext_descriptor	usb2extd;
+	struct usb_devcap_ss_descriptor		usbdcd;
+	struct usb_devcap_container_id_descriptor cidd;
+	struct usb_devcap_ss_plus_descriptor_header ssplus;
+	uDWord caps[7];
+} __packed;
+
 union xhci_hub_desc {
 	struct usb_status		stat;
 	struct usb_port_status		ps;
 	struct usb_hub_ss_descriptor	hubd;
+	struct usb_ext_status   ext_ps;
 	uint8_t				temp[128];
 };
 
