@@ -41,7 +41,7 @@
 #include <security/pam_modules.h>
 #include <security/pam_mod_misc.h>
 
-#define	BASE_RUNTIME_DIR_PREFIX	"/var/run/xdg"
+#define	BASE_RUNTIME_DIR_PREFIX	"/var/run/user"
 #define	RUNTIME_DIR_PREFIX	runtime_dir_prefix != NULL ? runtime_dir_prefix : BASE_RUNTIME_DIR_PREFIX
 
 #define	RUNTIME_DIR_PREFIX_MODE	0711
@@ -57,6 +57,7 @@ _pam_xdg_open(pam_handle_t *pamh, int flags __unused,
 	const char *user;
 	const char *runtime_dir_prefix;
 	struct stat sb;
+	char uid[11];
 	char *runtime_dir = NULL;
 	char *xdg_session_file;
 	int rv, rt_dir_prefix, rt_dir, session_file, i;
@@ -76,6 +77,7 @@ _pam_xdg_open(pam_handle_t *pamh, int flags __unused,
 		rv = PAM_SESSION_ERR;
 		goto out;
 	}
+	snprintf(uid, sizeof(uid), "%u", passwd->pw_uid);
 
 	/* Open or create the base xdg directory */
 	rt_dir_prefix = open(RUNTIME_DIR_PREFIX, O_DIRECTORY | O_NOFOLLOW);
@@ -90,48 +92,57 @@ _pam_xdg_open(pam_handle_t *pamh, int flags __unused,
 	}
 
 	/* Open or create the user xdg directory */
-	rt_dir = openat(rt_dir_prefix, user, O_DIRECTORY | O_NOFOLLOW);
+	rt_dir = openat(rt_dir_prefix, uid, O_DIRECTORY | O_NOFOLLOW);
 	if (rt_dir < 0) {
-		rt_dir = mkdirat(rt_dir_prefix, user, RUNTIME_DIR_MODE);
+		rt_dir = mkdirat(rt_dir_prefix, uid, RUNTIME_DIR_MODE);
 		if (rt_dir != 0) {
-			PAM_VERBOSE_ERROR("mkdir: %s/%s (%d)", RUNTIME_DIR_PREFIX, user, rt_dir);
+			PAM_VERBOSE_ERROR("mkdir: %s/%s (%d)",
+			    RUNTIME_DIR_PREFIX, uid, rt_dir);
 			rv = PAM_SESSION_ERR;
 			goto out;
 		}
-		rv = fchownat(rt_dir_prefix, user, passwd->pw_uid, passwd->pw_gid, 0);
+		rv = fchownat(rt_dir_prefix, uid, passwd->pw_uid,
+		    passwd->pw_gid, 0);
 		if (rv != 0) {
-			PAM_VERBOSE_ERROR("fchownat: %s/%s (%d)", RUNTIME_DIR_PREFIX, user, rv);
-			rv = unlinkat(rt_dir_prefix, user, AT_REMOVEDIR);
+			PAM_VERBOSE_ERROR("fchownat: %s/%s (%d)",
+			    RUNTIME_DIR_PREFIX, uid, rv);
+			rv = unlinkat(rt_dir_prefix, uid, AT_REMOVEDIR);
 			if (rv == -1)
-				PAM_VERBOSE_ERROR("unlinkat: %s/%s (%d)", RUNTIME_DIR_PREFIX, user, errno);
+				PAM_VERBOSE_ERROR("unlinkat: %s/%s (%d)",
+				    RUNTIME_DIR_PREFIX, uid, errno);
 			rv = PAM_SESSION_ERR;
 			goto out;
 		}
 	} else {
 		close(rt_dir);
 		/* Check that the already create dir is correctly owned */
-		rv = fstatat(rt_dir_prefix, user, &sb, 0);
+		rv = fstatat(rt_dir_prefix, uid, &sb, 0);
 		if (rv == -1) {
-			PAM_VERBOSE_ERROR("fstatat %s/%s failed (%d)", RUNTIME_DIR_PREFIX, user, errno);
+			PAM_VERBOSE_ERROR("fstatat %s/%s failed (%d)",
+			    RUNTIME_DIR_PREFIX, uid, errno);
 			rv = PAM_SESSION_ERR;
 			goto out;
 		}
 		if (sb.st_uid != passwd->pw_uid ||
 		  sb.st_gid != passwd->pw_gid) {
-			PAM_VERBOSE_ERROR("%s/%s isn't owned by %d:%d\n", RUNTIME_DIR_PREFIX, user, passwd->pw_uid, passwd->pw_gid);
+			PAM_VERBOSE_ERROR("%s/%s isn't owned by %d:%d\n",
+			    RUNTIME_DIR_PREFIX, uid, passwd->pw_uid,
+			    passwd->pw_gid);
 			rv = PAM_SESSION_ERR;
 			goto out;
 		}
 		/* Test directory mode */
 		if ((sb.st_mode & 0x1FF) != RUNTIME_DIR_MODE) {
-			PAM_VERBOSE_ERROR("%s/%s have wrong mode\n", RUNTIME_DIR_PREFIX, user);
+			PAM_VERBOSE_ERROR("%s/%s have wrong mode\n",
+			    RUNTIME_DIR_PREFIX, uid);
 			rv = PAM_SESSION_ERR;
 			goto out;
 		}
 	}
 
 	/* Setup the environment variable */
-	rv = asprintf(&runtime_dir, "XDG_RUNTIME_DIR=%s/%s", RUNTIME_DIR_PREFIX, user);
+	rv = asprintf(&runtime_dir, "XDG_RUNTIME_DIR=%s/%s", RUNTIME_DIR_PREFIX,
+	    uid);
 	if (rv < 0) {
 		PAM_VERBOSE_ERROR("asprintf failed %d\n", rv);
 		rv = PAM_SESSION_ERR;
@@ -146,7 +157,7 @@ _pam_xdg_open(pam_handle_t *pamh, int flags __unused,
 
 	/* Setup the session count file */
 	for (i = 0; i < XDG_MAX_SESSION; i++) {
-		rv = asprintf(&xdg_session_file, "%s/xdg_session.%d", user, i);
+		rv = asprintf(&xdg_session_file, "%s/xdg_session.%d", uid, i);
 		if (rv < 0) {
 			PAM_VERBOSE_ERROR("asprintf failed %d\n", rv);
 			rv = PAM_SESSION_ERR;
@@ -213,6 +224,7 @@ _pam_xdg_close(pam_handle_t *pamh __unused, int flags __unused,
 	const char *user;
 	const char *runtime_dir_prefix;
 	struct stat sb;
+	char uid[11];
 	char *xdg_session_file;
 	int rv, rt_dir_prefix, rt_dir, session_file, i;
 
@@ -231,6 +243,7 @@ _pam_xdg_close(pam_handle_t *pamh __unused, int flags __unused,
 		rv = PAM_SESSION_ERR;
 		goto out;
 	}
+	snprintf(uid, sizeof(uid), "%d", passwd->pw_uid);
 
 	/* Open the xdg base directory */
 	rt_dir_prefix = open(RUNTIME_DIR_PREFIX, O_DIRECTORY | O_NOFOLLOW);
@@ -240,36 +253,40 @@ _pam_xdg_close(pam_handle_t *pamh __unused, int flags __unused,
 		goto out;
 	}
 	/* Check that the already created dir is correctly owned */
-	rv = fstatat(rt_dir_prefix, user, &sb, 0);
+	rv = fstatat(rt_dir_prefix, uid, &sb, 0);
 	if (rv == -1) {
-		PAM_VERBOSE_ERROR("fstatat %s/%s failed (%d)", RUNTIME_DIR_PREFIX, user, errno);
+		PAM_VERBOSE_ERROR("fstatat %s/%s failed (%d)",
+		    RUNTIME_DIR_PREFIX, uid, errno);
 		rv = PAM_SESSION_ERR;
 		goto out;
 	}
 	if (sb.st_uid != passwd->pw_uid ||
 	    sb.st_gid != passwd->pw_gid) {
-		PAM_VERBOSE_ERROR("%s/%s isn't owned by %d:%d\n", RUNTIME_DIR_PREFIX, user, passwd->pw_uid, passwd->pw_gid);
+		PAM_VERBOSE_ERROR("%s/%s isn't owned by %d:%d\n",
+		    RUNTIME_DIR_PREFIX, uid, passwd->pw_uid, passwd->pw_gid);
 		rv = PAM_SESSION_ERR;
 		goto out;
 	}
 	/* Test directory mode */
 	if ((sb.st_mode & 0x1FF) != RUNTIME_DIR_MODE) {
-		PAM_VERBOSE_ERROR("%s/%s have wrong mode\n", RUNTIME_DIR_PREFIX, user);
+		PAM_VERBOSE_ERROR("%s/%s have wrong mode\n", RUNTIME_DIR_PREFIX,
+		    uid);
 		rv = PAM_SESSION_ERR;
 		goto out;
 	}
 
 	/* Open the user xdg directory */
-	rt_dir = openat(rt_dir_prefix, user, O_DIRECTORY | O_NOFOLLOW);
+	rt_dir = openat(rt_dir_prefix, uid, O_DIRECTORY | O_NOFOLLOW);
 	if (rt_dir < 0) {
-		PAM_VERBOSE_ERROR("openat: %s/%s failed (%d)\n", RUNTIME_DIR_PREFIX, user, rt_dir_prefix);
+		PAM_VERBOSE_ERROR("openat: %s/%s failed (%d)\n",
+		    RUNTIME_DIR_PREFIX, uid, rt_dir_prefix);
 		rv = PAM_SESSION_ERR;
 		goto out;
 	}
 
 	/* Get the last session file created */
 	for (i = XDG_MAX_SESSION; i >= 0; i--) {
-		rv = asprintf(&xdg_session_file, "%s/xdg_session.%d", user, i);
+		rv = asprintf(&xdg_session_file, "%s/xdg_session.%d", uid, i);
 		if (rv < 0) {
 			PAM_VERBOSE_ERROR("asprintf failed %d\n", rv);
 			rv = PAM_SESSION_ERR;
@@ -294,8 +311,9 @@ _pam_xdg_close(pam_handle_t *pamh __unused, int flags __unused,
 	/* Final cleanup if last user session */
 	if (i == 0) {
 		remove_dir(rt_dir);
-		if (unlinkat(rt_dir_prefix, user, AT_REMOVEDIR) != 0) {
-			PAM_VERBOSE_ERROR("Can't cleanup %s/%s\n", runtime_dir_prefix, user);
+		if (unlinkat(rt_dir_prefix, uid, AT_REMOVEDIR) != 0) {
+			PAM_VERBOSE_ERROR("Can't cleanup %s/%s\n",
+			    runtime_dir_prefix, uid);
 			rv = PAM_SESSION_ERR;
 			goto out;
 		}
