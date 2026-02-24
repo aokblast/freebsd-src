@@ -73,6 +73,7 @@
 #include <contrib/dev/acpica/include/acpi.h>
 
 #include <dev/acpica/acpivar.h>
+#include <dev/acpica/acpi_cppc_lib.h>
 
 #include <x86/cpufreq/hwpstate_common.h>
 
@@ -151,6 +152,7 @@ struct hwpstate_setting {
 
 #define HWPFL_USE_CPPC			(1 << 0)
 #define HWPFL_CPPC_REQUEST_NOT_READ	(1 << 1)
+#define HWPFL_CPPC_CPUFREQ_WRITE	(1 << 2)
 
 /*
  * Atomicity is achieved by only modifying a given softc on its associated CPU
@@ -169,6 +171,9 @@ struct hwpstate_softc {
 		};
 		struct {
 			uint64_t request;
+			uint32_t caps1;
+			uint32_t lowest_freq;
+			uint32_t nominal_freq;
 		} cppc;
 	};
 };
@@ -287,6 +292,42 @@ print_cppc_no_request(struct sbuf *const sb)
 #define HWP_ERROR_CPPC_REQUEST		(1 << 2)
 #define HWP_ERROR_CPPC_REQUEST_WRITE	(1 << 3)
 
+static uint32_t
+upscale_cppc_freq(struct hwpstate_softc *sc, uint32_t perf)
+{
+	uint32_t lowest_freq, nominal_freq, lowest_perf, nominal_perf;
+
+	lowest_freq = sc->cppc.lowest_freq;
+	nominal_freq = sc->cppc.nominal_freq;
+	lowest_perf = BITS_VALUE(AMD_CPPC_CAPS_1_LOWEST_PERF_BITS,
+	    sc->cppc.caps1);
+	nominal_perf = BITS_VALUE(AMD_CPPC_CAPS_1_NOMINAL_PERF_BITS,
+	    sc->cppc.caps1);
+	if (nominal_perf == lowest_perf)
+		nominal_perf = lowest_perf + 1;
+	return (lowest_freq +
+	    (nominal_freq - lowest_freq) * (perf - lowest_perf) /
+		(nominal_perf - lowest_perf));
+}
+
+static uint32_t
+downscale_cppc_freq(struct hwpstate_softc *sc, uint32_t freq)
+{
+	uint32_t lowest_freq, nominal_freq, lowest_pertf, nominal_perf;
+
+	lowest_freq = sc->cppc.lowest_freq;
+	nominal_freq = sc->cppc.nominal_freq;
+	lowest_pertf = BITS_VALUE(AMD_CPPC_CAPS_1_LOWEST_PERF_BITS,
+	    sc->cppc.caps1);
+	nominal_perf = BITS_VALUE(AMD_CPPC_CAPS_1_NOMINAL_PERF_BITS,
+	    sc->cppc.caps1);
+	if (nominal_freq == lowest_freq)
+		nominal_freq = lowest_freq + 1;
+	return (lowest_pertf +
+	    (nominal_perf - lowest_pertf) * (freq - lowest_freq) /
+		(nominal_freq - lowest_freq));
+}
+
 static inline bool
 hwp_has_error(u_int res, u_int err)
 {
@@ -295,7 +336,6 @@ hwp_has_error(u_int res, u_int err)
 
 struct get_cppc_regs_data {
 	uint64_t enable;
-	uint64_t caps;
 	uint64_t req;
 	/* HWP_ERROR_CPPC_* except HWP_ERROR_*_WRITE */
 	u_int res;
@@ -312,10 +352,6 @@ get_cppc_regs_cb(void *args)
 	error = rdmsr_safe(MSR_AMD_CPPC_ENABLE, &data->enable);
 	if (error != 0)
 		data->res |= HWP_ERROR_CPPC_ENABLE;
-
-	error = rdmsr_safe(MSR_AMD_CPPC_CAPS_1, &data->caps);
-	if (error != 0)
-		data->res |= HWP_ERROR_CPPC_CAPS;
 
 	error = rdmsr_safe(MSR_AMD_CPPC_REQUEST, &data->req);
 	if (error != 0)
@@ -355,7 +391,7 @@ sysctl_cppc_dump_handler(SYSCTL_HANDLER_ARGS)
 	if (hwp_has_error(data.res, HWP_ERROR_CPPC_CAPS))
 		print_cppc_no_caps_1(sb);
 	else
-		print_cppc_caps_1(sb, data.caps);
+		print_cppc_caps_1(sb, sc->cppc.caps1);
 
 	if (hwp_has_error(data.res, HWP_ERROR_CPPC_REQUEST))
 		print_cppc_no_request(sb);
@@ -624,20 +660,35 @@ hwpstate_set(device_t dev, const struct cf_setting *cf)
 {
 	struct hwpstate_softc *sc;
 	struct hwpstate_setting *set;
+	uint32_t des_perf;
 	int i;
 
 	if (cf == NULL)
 		return (EINVAL);
 	sc = device_get_softc(dev);
-	if ((sc->flags & HWPFL_USE_CPPC) != 0)
-		return (EOPNOTSUPP);
+	if ((sc->flags & HWPFL_USE_CPPC) != 0) {
+		if ((sc->flags & HWPFL_CPPC_CPUFREQ_WRITE) == 0)
+			return (EOPNOTSUPP);
+		des_perf = downscale_cppc_freq(sc, cf->freq);
+		if (des_perf < BITS_VALUE(AMD_CPPC_CAPS_1_LOWEST_PERF_BITS,
+				   sc->cppc.caps1) ||
+		    des_perf > BITS_VALUE(AMD_CPPC_CAPS_1_HIGHEST_PERF_BITS,
+				   sc->cppc.caps1))
+			return (ENXIO);
+		SET_BITS_VALUE(sc->cppc.request, AMD_CPPC_REQUEST_DES_PERF_BITS,
+		    des_perf);
+		return (x86_msr_op(MSR_AMD_CPPC_REQUEST,
+		    MSR_OP_RENDEZVOUS_ONE | MSR_OP_WRITE |
+			MSR_OP_CPUID(cpu_get_pcpu(dev)->pc_cpuid),
+		    sc->cppc.request, NULL));
+	}
+
 	set = sc->hwpstate_settings;
 	for (i = 0; i < sc->cfnum; i++)
 		if (CPUFREQ_CMP(cf->freq, set[i].freq))
 			break;
 	if (i == sc->cfnum)
 		return (EINVAL);
-
 	return (hwpstate_goto_pstate(dev, set[i].pstate_id));
 }
 
@@ -681,30 +732,60 @@ hwpstate_get(device_t dev, struct cf_setting *cf)
 	return (0);
 }
 
+#define AMD_CPPC_STEPS		    10
+#define AMD_CPPC_COUNT_LEVELS(l, r) \
+	(roundup(r - l + 1, AMD_CPPC_STEPS) / AMD_CPPC_STEPS)
+
 static int
 hwpstate_settings(device_t dev, struct cf_setting *sets, int *count)
 {
 	struct hwpstate_softc *sc;
 	struct hwpstate_setting set;
 	int i;
+	int levels;
+	int cur_level;
 
 	if (sets == NULL || count == NULL)
 		return (EINVAL);
 	sc = device_get_softc(dev);
-	if ((sc->flags & HWPFL_USE_CPPC) != 0)
-		return (EOPNOTSUPP);
 
-	if (*count < sc->cfnum)
-		return (E2BIG);
-	for (i = 0; i < sc->cfnum; i++, sets++) {
-		set = sc->hwpstate_settings[i];
-		sets->freq = set.freq;
-		sets->volts = set.volts;
-		sets->power = set.power;
-		sets->lat = set.lat;
-		sets->dev = dev;
+	if ((sc->flags & HWPFL_USE_CPPC) != 0) {
+		if ((sc->flags & HWPFL_CPPC_CPUFREQ_WRITE) == 0)
+			return (EOPNOTSUPP);
+		levels = AMD_CPPC_COUNT_LEVELS(
+		    BITS_VALUE(AMD_CPPC_CAPS_1_LOWEST_PERF_BITS,
+			sc->cppc.caps1),
+		    BITS_VALUE(AMD_CPPC_CAPS_1_HIGHEST_PERF_BITS,
+			sc->cppc.caps1));
+		if (*count < levels)
+			return (E2BIG);
+		*count = levels;
+		cur_level = BITS_VALUE(AMD_CPPC_CAPS_1_LOWEST_PERF_BITS,
+		    sc->cppc.caps1);
+		for (i = 0; i < levels; i++, sets++) {
+			sets->freq = upscale_cppc_freq(sc, cur_level);
+			sets->volts = CPUFREQ_VAL_UNKNOWN;
+			sets->power = CPUFREQ_VAL_UNKNOWN;
+			sets->lat = CPUFREQ_VAL_UNKNOWN;
+			sets->dev = dev;
+			cur_level += AMD_CPPC_STEPS;
+			cur_level = MIN(cur_level,
+			    BITS_VALUE(AMD_CPPC_CAPS_1_HIGHEST_PERF_BITS,
+				sc->cppc.caps1));
+		}
+	} else {
+		if (*count < sc->cfnum)
+			return (E2BIG);
+		for (i = 0; i < sc->cfnum; i++, sets++) {
+			set = sc->hwpstate_settings[i];
+			sets->freq = set.freq;
+			sets->volts = set.volts;
+			sets->power = set.power;
+			sets->lat = set.lat;
+			sets->dev = dev;
+		}
+		*count = sc->cfnum;
 	}
-	*count = sc->cfnum;
 
 	return (0);
 }
@@ -716,12 +797,14 @@ hwpstate_type(device_t dev, int *type)
 
 	if (type == NULL)
 		return (EINVAL);
-	sc = device_get_softc(dev);
-
 	*type = CPUFREQ_TYPE_ABSOLUTE;
-	*type |= (sc->flags & HWPFL_USE_CPPC) != 0 ?
-	    CPUFREQ_FLAG_INFO_ONLY | CPUFREQ_FLAG_UNCACHED :
-	    0;
+
+	sc = device_get_softc(dev);
+	if ((sc->flags & HWPFL_USE_CPPC)) {
+		if ((sc->flags & HWPFL_CPPC_CPUFREQ_WRITE) == 0)
+			*type |= CPUFREQ_FLAG_INFO_ONLY | CPUFREQ_FLAG_UNCACHED;
+	}
+
 	return (0);
 }
 
@@ -822,6 +905,8 @@ enable_cppc_cb(void *args)
 			highest_perf = highest_cand;
 		}
 	}
+
+	sc->cppc.caps1 = data->caps;
 	SET_BITS_VALUE(data->request, AMD_CPPC_REQUEST_MIN_PERF_BITS,
 	    lowest_perf);
 	SET_BITS_VALUE(data->request, AMD_CPPC_REQUEST_MAX_PERF_BITS,
@@ -994,7 +1079,9 @@ static int
 hwpstate_attach(device_t dev)
 {
 	struct hwpstate_softc *sc;
+	struct acpi_cppc_ctx *ctx;
 	int res;
+	uint32_t flag;
 
 	sc = device_get_softc(dev);
 	if ((sc->flags & HWPFL_USE_CPPC) != 0) {
@@ -1044,6 +1131,24 @@ hwpstate_attach(device_t dev)
 		    "0 enables autonomous mode, otherwise value should be "
 		    "between 'minimum_performance' and 'maximum_performance' "
 		    "inclusive)");
+		ctx = acpi_cppc_ctx_init(dev);
+		if (ctx) {
+			if (hwpstate_verbose)
+				device_printf(dev, "Found ACPI _CPC object");
+			flag = acpi_cppc_get_features(ctx);
+			if ((flag & ACPI_CPPC_HAS_LOW_FREQ) &&
+			    (flag & ACPI_CPPC_HAS_NOMINAL_FREQ)) {
+				if (hwpstate_verbose)
+					device_printf(dev,
+					    "ACPI CPPC is writable in cpufreq");
+				sc->flags |= HWPFL_CPPC_CPUFREQ_WRITE;
+				sc->cppc.lowest_freq = acpi_cppc_read_reg(ctx,
+				    ACPI_CPPC_LOWEST_FREQ);
+				sc->cppc.nominal_freq = acpi_cppc_read_reg(ctx,
+				    ACPI_CPPC_NOMINAL_FREQ);
+			}
+			acpi_cppc_ctx_free(dev, ctx);
+		}
 	}
 	return (cpufreq_register(dev));
 }
