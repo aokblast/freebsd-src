@@ -40,5 +40,6 @@
 #define	SYS_RES_MEMORY	3	/* i/o memory */
 #define	SYS_RES_IOPORT	4	/* i/o ports */
 #define	PCI_RES_BUS	5	/* PCI bus numbers */
+#define	SYS_RES_FFH	6	/* FFixedhardware */
 
 #endif /* !_MACHINE_RESOURCE_H_ */

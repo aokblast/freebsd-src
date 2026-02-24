@@ -85,7 +85,7 @@ static MALLOC_DEFINE(M_NEXUSDEV, "nexusdev", "Nexus device");
 
 #define DEVTONX(dev)	((struct nexus_device *)device_get_ivars(dev))
 
-struct rman irq_rman, drq_rman, port_rman, mem_rman;
+struct rman irq_rman, drq_rman, port_rman, mem_rman, ffh_rman;
 
 static int nexus_print_all_resources(device_t dev);
 
@@ -253,6 +253,14 @@ nexus_init_resources(void)
 	if (rman_init(&mem_rman)
 	    || rman_manage_region(&mem_rman, 0, mem_rman.rm_end))
 		panic("nexus_init_resources mem_rman");
+
+	ffh_rman.rm_start = 0;
+	ffh_rman.rm_end = 0xffffffff;
+	ffh_rman.rm_type = RMAN_ARRAY;
+	ffh_rman.rm_descr = "FFH (MSR)";
+	if (rman_init(&ffh_rman) ||
+	    rman_manage_region(&ffh_rman, 0, 0xffffffff))
+		panic("nexus_init_resources ffg_rman");
 }
 
 static int
@@ -286,6 +294,7 @@ nexus_print_all_resources(device_t dev)
 	retval += resource_list_print_type(rl, "port", SYS_RES_IOPORT, "%#jx");
 	retval += resource_list_print_type(rl, "iomem", SYS_RES_MEMORY, "%#jx");
 	retval += resource_list_print_type(rl, "irq", SYS_RES_IRQ, "%jd");
+	retval += resource_list_print_type(rl, "ffh", SYS_RES_FFH, "%jd");
 
 	return (retval);
 }
@@ -335,6 +344,8 @@ nexus_get_rman(device_t bus, int type, u_int flags)
 		return (&port_rman);
 	case SYS_RES_MEMORY:
 		return (&mem_rman);
+	case SYS_RES_FFH:
+		return (&ffh_rman);
 	default:
 		return (NULL);
 	}
@@ -385,11 +396,13 @@ nexus_map_resource(device_t bus, device_t child, struct resource *r,
 	if (!(rman_get_flags(r) & RF_ACTIVE))
 		return (ENXIO);
 
-	/* Mappings are only supported on I/O and memory resources. */
+	/* Mappings are only supported on I/O, memory and FFixedhardware
+	 * resources. */
 	type = rman_get_type(r);
 	switch (type) {
 	case SYS_RES_IOPORT:
 	case SYS_RES_MEMORY:
+	case SYS_RES_FFH:
 		break;
 	default:
 		return (EINVAL);
@@ -420,6 +433,11 @@ nexus_map_resource(device_t bus, device_t child, struct resource *r,
 		 */
 		map->r_bushandle = (bus_space_handle_t)map->r_vaddr;
 		break;
+	case SYS_RES_FFH:
+		map->r_bushandle = start;
+		map->r_bustag = X86_BUS_SPACE_FFH;
+		map->r_size = length;
+		break;
 	}
 	return (0);
 }
@@ -436,6 +454,7 @@ nexus_unmap_resource(device_t bus, device_t child, struct resource *r,
 	case SYS_RES_MEMORY:
 		pmap_unmapdev(map->r_vaddr, map->r_size);
 		/* FALLTHROUGH */
+	case SYS_RES_FFH:
 	case SYS_RES_IOPORT:
 		break;
 	default:
