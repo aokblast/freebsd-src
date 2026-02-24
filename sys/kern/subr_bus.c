@@ -4455,6 +4455,9 @@ bus_generic_rman_activate_resource(device_t dev, device_t child,
 	switch (type) {
 	case SYS_RES_IOPORT:
 	case SYS_RES_MEMORY:
+#ifdef SYS_RES_FFH
+	case SYS_RES_FFH:
+#endif
 		if ((rman_get_flags(r) & RF_UNMAPPED) == 0) {
 			error = BUS_MAP_RESOURCE(dev, child, r, NULL, &map);
 			if (error != 0)
@@ -4504,6 +4507,9 @@ bus_generic_rman_deactivate_resource(device_t dev, device_t child,
 	switch (type) {
 	case SYS_RES_IOPORT:
 	case SYS_RES_MEMORY:
+#ifdef SYS_RES_FFH
+	case SYS_RES_FFH:
+#endif
 		if ((rman_get_flags(r) & RF_UNMAPPED) == 0) {
 			rman_get_mapping(r, &map);
 			BUS_UNMAP_RESOURCE(dev, child, r, &map);

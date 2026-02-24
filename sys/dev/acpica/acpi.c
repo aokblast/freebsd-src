@@ -272,6 +272,9 @@ ACPI_SERIAL_DECL(acpi, "ACPI root bus");
 
 /* Local pools for managing system resources for ACPI child devices. */
 static struct rman acpi_rman_io, acpi_rman_mem;
+#ifdef SYS_RES_FFH
+static struct rman acpi_rman_ffh;
+#endif
 
 #define ACPI_MINIMUM_AWAKETIME	5
 
@@ -524,6 +527,12 @@ acpi_attach(device_t dev)
     acpi_rman_mem.rm_descr = "ACPI I/O memory addresses";
     if (rman_init(&acpi_rman_mem) != 0)
 	panic("acpi rman_init memory failed");
+#ifdef SYS_RES_FFH
+    acpi_rman_ffh.rm_type = RMAN_ARRAY;
+    acpi_rman_ffh.rm_descr = "ACPI FFixedHardware";
+    if (rman_init(&acpi_rman_ffh) != 0)
+	    panic("acpi rman_init memory failed");
+#endif
 
     resource_list_init(&sc->sysres_rl);
 
@@ -963,6 +972,9 @@ acpi_print_child(device_t bus, device_t child)
     retval += resource_list_print_type(rl, "iomem", SYS_RES_MEMORY, "%#jx");
     retval += resource_list_print_type(rl, "irq",   SYS_RES_IRQ,    "%jd");
     retval += resource_list_print_type(rl, "drq",   SYS_RES_DRQ,    "%jd");
+#ifdef SYS_RES_FFH
+    retval += resource_list_print_type(rl, "ffh",   SYS_RES_FFH,    "%jd");
+#endif
     if (device_get_flags(child))
 	retval += printf(" flags %#x", device_get_flags(child));
     retval += bus_print_child_domain(bus, child);
@@ -1332,6 +1344,16 @@ acpi_hint_device_matches_resources(device_t child, const char *name,
 		else
 			return false;
 	}
+#ifdef SYS_RES_FFH
+	if (resource_long_value(name, unit, "ffh", &value) == 0) {
+		if (acpi_match_resource_hint(child, SYS_RES_FFH, value))
+
+			matches = true;
+		else
+			return false;
+	}
+#endif
+
 	return matches;
 }
 
@@ -1450,6 +1472,10 @@ acpi_get_rman(device_t bus, int type, u_int flags)
 		return (&acpi_rman_io);
 	case SYS_RES_MEMORY:
 		return (&acpi_rman_mem);
+#ifdef SYS_RES_FFH
+	case SYS_RES_FFH:
+		return (&acpi_rman_ffh);
+#endif
 	default:
 		return (NULL);
 	}
@@ -1826,6 +1852,12 @@ acpi_bus_alloc_gas(device_t dev, int *type, int rid, ACPI_GENERIC_ADDRESS *gas,
     case ACPI_ADR_SPACE_SYSTEM_IO:
 	res_type = SYS_RES_IOPORT;
 	break;
+#ifdef SYS_RES_FFH
+    case ACPI_ADR_SPACE_FIXED_HARDWARE:
+	res_type = SYS_RES_FFH;
+	gas->BitWidth = 8;
+	break;
+#endif
     default:
 	return (EOPNOTSUPP);
     }
@@ -1839,7 +1871,7 @@ acpi_bus_alloc_gas(device_t dev, int *type, int rid, ACPI_GENERIC_ADDRESS *gas,
 
     /* Validate the address after we're sure we support the space. */
     if (gas->Address == 0 || gas->BitWidth == 0)
-	return (EINVAL);
+	    return (EINVAL);
 
     bus_set_resource(dev, res_type, rid, gas->Address,
 	gas->BitWidth / 8);

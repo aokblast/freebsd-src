@@ -610,6 +610,8 @@ int		acpi_pxm_parse(device_t dev);
 int		acpi_map_pxm_to_vm_domainid(int pxm);
 bus_get_cpus_t		acpi_get_cpus;
 
+uint64_t acpi_ffh_read(device_t dev, struct resource *res);
+void acpi_ffh_write(device_t dev, struct resource *res, uint64_t val);
 #ifdef __aarch64__
 /*
  * ARM specific ACPI interfaces, relating to IORT table.
