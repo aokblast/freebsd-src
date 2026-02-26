@@ -16,7 +16,7 @@ int hwpstate_verbose;
 SYSCTL_INT(_debug, OID_AUTO, hwpstate_verbose, CTLFLAG_RWTUN,
     &hwpstate_verbose, 0, "Debug hwpstate");
 
-bool hwpstate_pkg_ctrl_enable = true;
+bool hwpstate_pkg_ctrl_enable = false;
 SYSCTL_BOOL(_machdep, OID_AUTO, hwpstate_pkg_ctrl, CTLFLAG_RDTUN,
     &hwpstate_pkg_ctrl_enable, 0,
     "Set 1 (default) to enable package-level control, 0 to disable");
