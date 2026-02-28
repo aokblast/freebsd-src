@@ -1,0 +1,201 @@
+.\"
+.\" Copyright (c) 2026 The FreeBSD Foundation
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.Dd August 24, 2026
+.Dt ACPI_FAN 4
+.Os
+.Sh NAME
+.Nm acpi_fan
+.Nd ACPI fan device driver
+.Sh SYNOPSIS
+.Cd "device acpi"
+.Sh DESCRIPTION
+The
+.Nm
+driver attaches to ACPI fan devices, that is, devices with a hardware ID
+of
+.Li PNP0C0B ,
+and exports their speed and state through
+.Xr sysctl 8 .
+.Pp
+Only fans that implement the ACPI 4.0 fan control interface are supported.
+The driver requires the
+.Li _FIF
+control method to be present and does not attach without it, so fans that
+are driven purely by the platform through a thermal zone's active cooling
+list are not claimed.
+.Pp
+Fans are numbered sequentially in the order they appear in the AML, and each
+one gets its own
+.Va dev.fan.%d
+sysctl tree.
+.Pp
+A fan supports one of two control models, as reported by the
+.Li FineGrainControl
+field of
+.Li _FIF :
+.Bl -bullet
+.It
+With fine grain control, any level from 0 to 100 may be requested, and the
+firmware interprets it as a percentage of maximum speed.
+.It
+Without fine grain control, only the discrete levels the firmware enumerates
+in its
+.Li _FPS
+performance state table may be requested.
+.El
+.Pp
+The
+.Va fine_grind
+sysctl reports which model is in use, and the set of sysctls the driver
+creates differs accordingly.
+.Sh SYSCTL VARIABLES
+.Bl -tag -width indent
+.It Va dev.fan.%d.fine_grind
+Whether the fan supports fine grain control.
+Read-only.
+.It Va dev.fan.%d.set_level
+The level last requested through this sysctl.
+Writing to it calls the firmware's
+.Li _FSL
+method to change the fan's speed.
+.Pp
+For a fine grain fan the value is a percentage of maximum speed, from 0 to
+100; values outside that range are rejected with
+.Er EINVAL .
+The value is rounded down to a multiple of
+.Va steps
+before being passed to the firmware.
+.Pp
+Otherwise the value must be one of the control values listed by
+.Va levels ,
+and any other value is rejected with
+.Er EINVAL .
+.Pp
+This is also a loader tunable, so an initial level may be set from
+.Xr loader.conf 5 .
+.It Va dev.fan.%d.status
+The fan's current control level and speed in revolutions per minute, read
+from the firmware's
+.Li _FST
+method at the time the sysctl is read.
+Read-only.
+.Pp
+A speed of 4294967295
+.Pq Li 0xffffffff
+means the platform does not report the fan's speed.
+.It Va dev.fan.%d.steps
+The step size recommended by the firmware for
+.Va set_level ,
+in percent.
+Present only when
+.Va fine_grind
+is 1.
+Read-only.
+.It Va dev.fan.%d.levels
+The fan's performance states, one per line, as enumerated by the firmware's
+.Li _FPS
+method.
+Present only when
+.Va fine_grind
+is 0.
+Read-only.
+.Pp
+Each line reports the control value to write to
+.Va set_level ,
+the active cooling trip point associated with the state, the expected speed
+in revolutions per minute, the expected noise level in centibels, and the
+expected power draw in milliwatts.
+Any of these fields may be 4294967295
+.Pq Li 0xffffffff ,
+which means the firmware does not provide that value.
+.El
+.Sh LOADER TUNABLES
+.Bl -tag -width indent
+.It Va debug.acpi.disabled
+Adding
+.Dq Li fan
+to this list prevents
+.Nm
+from attaching to any device.
+See
+.Xr acpi 4 .
+.El
+.Sh EXAMPLES
+List the fans present on the system:
+.Bd -literal -offset indent
+% sysctl -N dev.fan | cut -d. -f1-3 | sort -u
+dev.fan.0
+.Ed
+.Pp
+Show a fan's control model and current state:
+.Bd -literal -offset indent
+% sysctl dev.fan.0.fine_grind dev.fan.0.status
+dev.fan.0.fine_grind: 0
+dev.fan.0.status: Control Level: 50, Speed: 2400 RPM
+.Ed
+.Pp
+Since this fan does not support fine grain control, ask the firmware which
+levels it accepts, then select one:
+.Bd -literal -offset indent
+% sysctl dev.fan.0.levels
+dev.fan.0.levels: Ctrl: 0, TripPoint: 4294967295, Speed: 0, NoiseLevel: 0, Power: 0
+Ctrl: 50, TripPoint: 4294967295, Speed: 2400, NoiseLevel: 300, Power: 1500
+Ctrl: 100, TripPoint: 4294967295, Speed: 4800, NoiseLevel: 500, Power: 3000
+# sysctl dev.fan.0.set_level=100
+dev.fan.0.set_level: 50 -> 100
+.Ed
+.Sh SEE ALSO
+.Xr acpi 4 ,
+.Xr acpi_thermal 4 ,
+.Xr loader.conf 5 ,
+.Xr acpidump 8 ,
+.Xr sysctl 8
+.Sh HISTORY
+The
+.Nm
+driver first appeared in
+.Fx 16.0 .
+.Sh AUTHORS
+.An -nosplit
+The
+.Nm
+driver and this manual page were written by
+.An ShengYi Hung Aq Mt aokblast@FreeBSD.org .
+.Sh CAVEATS
+The fan is shared with the platform.
+Firmware and the ACPI thermal zones described in
+.Xr acpi_thermal 4
+change the fan's speed on their own, so the value of
+.Va set_level
+is only the level this driver last requested, not necessarily the level the
+fan is running at.
+Read
+.Va status
+for that.
+.Pp
+Across a suspend and resume cycle the driver records the fan's level, stops
+the fan, and restores the recorded level on resume.
+Restoring is best effort: a firmware that rejects the request is not treated
+as a resume failure.
