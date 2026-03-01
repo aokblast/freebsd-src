@@ -622,6 +622,9 @@ device		cpuctl
 #
 device		superio
 
+# Running Average Power Limit
+device      amdrapl
+
 #####################################################################
 
 # More undocumented options for linting.
