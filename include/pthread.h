@@ -46,6 +46,7 @@
 #if __BSD_VISIBLE
 #include <sys/_sigval.h>
 #endif
+#include <pthread_np.h>
 #include <sched.h>
 #include <time.h>
 
