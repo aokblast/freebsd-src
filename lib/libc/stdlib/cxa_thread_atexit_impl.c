@@ -59,8 +59,6 @@
  * prevent the crash.
  */
 
-#define CXA_DTORS_ITERATIONS 4
-
 struct cxa_thread_dtor {
 	void *obj;
 	void (*func)(void *);
@@ -112,18 +110,13 @@ walk_cb_call(struct cxa_thread_dtor *dtor)
 }
 
 static void
-walk_cb_nocall(struct cxa_thread_dtor *dtor __unused)
-{
-}
-
-static void
-cxa_thread_walk(void (*cb)(struct cxa_thread_dtor *))
+cxa_thread_walk()
 {
 	struct cxa_thread_dtor *dtor;
 
 	while ((dtor = LIST_FIRST(&dtors)) != NULL) {
 		LIST_REMOVE(dtor, entry);
-		cb(dtor);
+		walk_cb_call(dtor);
 		free(dtor);
 	}
 }
@@ -136,16 +129,5 @@ cxa_thread_walk(void (*cb)(struct cxa_thread_dtor *))
 void
 __cxa_thread_call_dtors(void)
 {
-	int i;
-
-	for (i = 0; i < CXA_DTORS_ITERATIONS && !LIST_EMPTY(&dtors); i++)
-		cxa_thread_walk(walk_cb_call);
-
-	if (!LIST_EMPTY(&dtors)) {
-		fprintf(stderr, "Thread %p is exiting with more "
-		    "thread-specific dtors created after %d iterations "
-		    "of destructor calls\n",
-		    _pthread_self(), i);
-		cxa_thread_walk(walk_cb_nocall);
-	}
+	cxa_thread_walk();
 }
