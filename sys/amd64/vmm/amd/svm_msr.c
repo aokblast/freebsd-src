@@ -128,6 +128,8 @@ svm_rdmsr(struct svm_vcpu *vcpu, u_int num, uint64_t *result, bool *retu)
 	case MSR_SYSCFG:
 	case MSR_AMDK8_IPM:
 	case MSR_EXTFEATURES:
+	case MSR_AMD_CPUID07:
+	case MSR_AMD_CPUID01:
 		*result = 0;
 		break;
 	default:
@@ -175,6 +177,8 @@ svm_wrmsr(struct svm_vcpu *vcpu, u_int num, uint64_t val, bool *retu)
 		break;
 #endif
 	case MSR_EXTFEATURES:
+	case MSR_AMD_CPUID07:
+	case MSR_AMD_CPUID01:
 		break;
 	default:
 		error = EINVAL;
