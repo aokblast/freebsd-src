@@ -42,7 +42,9 @@
 
 #include <machine/md_var.h>
 #include <machine/specialreg.h>
+
 #include <x86/ifunc.h>
+#include <x86/ucode.h>
 
 #include <dev/random/randomdev.h>
 
@@ -99,6 +101,19 @@ random_rdseed_read(void *buf, u_int c)
 	return (c - count);
 }
 
+static const struct ucode_match_rev_data zen5_patch_rev[] = {
+	{ .fam = 0x1a, .model = 0x02, .stepping = 0x01, .rev = 0x0b00215a },
+	{ .fam = 0x1a, .model = 0x08, .stepping = 0x01, .rev = 0x0b008121 },
+	{ .fam = 0x1a, .model = 0x11, .stepping = 0x00, .rev = 0x0b101054 },
+	{ .fam = 0x1a, .model = 0x24, .stepping = 0x00, .rev = 0x0b204037 },
+	{ .fam = 0x1a, .model = 0x44, .stepping = 0x00, .rev = 0x0b404035 },
+	{ .fam = 0x1a, .model = 0x44, .stepping = 0x01, .rev = 0x0b404108 },
+	{ .fam = 0x1a, .model = 0x60, .stepping = 0x00, .rev = 0x0b600037 },
+	{ .fam = 0x1a, .model = 0x68, .stepping = 0x00, .rev = 0x0b608038 },
+	{ .fam = 0x1a, .model = 0x70, .stepping = 0x00, .rev = 0x0b700037 },
+	{},
+};
+
 static int
 rdseed_modevent(module_t mod, int type, void *unused)
 {
@@ -106,6 +121,10 @@ rdseed_modevent(module_t mod, int type, void *unused)
 	int error = 0;
 
 	has_rdseed = (cpu_stdext_feature & CPUID_STDEXT_RDSEED);
+	if (has_rdseed) {
+		if (ident_zen_cpu() == CPUID_AMD_ZEN5)
+			has_rdseed = ucode_match_min(zen5_patch_rev);
+	}
 
 	switch (type) {
 	case MOD_LOAD:
