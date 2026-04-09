@@ -62,6 +62,16 @@ struct ucode_intel_extsig_table {
 	} entries[0];
 };
 
+/* Stepping can be 0x0 so we use -1 to match all instead of 0 */
+#define UCODE_MATCH_ALL -1
+
+struct ucode_match_rev_data {
+	u_int fam;
+	u_int model;
+	u_int stepping;
+	u_int64_t rev;
+};
+
 typedef enum { SAFE, UNSAFE, EARLY } ucode_load_how;
 
 const void *ucode_amd_find(const char *path, uint32_t signature,
@@ -75,5 +85,6 @@ size_t	ucode_load_bsp(uintptr_t free);
 void	ucode_load_ap(int cpu);
 void	ucode_reload(void);
 void *	ucode_update(void *data);
+bool ucode_match_min(const struct ucode_match_rev_data *data);
 
 #endif /* _MACHINE_UCODE_H_ */

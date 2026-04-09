@@ -483,3 +483,30 @@ ucode_update(void *newdata)
 		newdata = NULL;
 	return (newdata);
 }
+
+bool
+ucode_match_min(const struct ucode_match_rev_data *data)
+{
+	while (data->fam != 0 || data->model != 0 || data->stepping != 0 ||
+	    data->rev != 0) {
+		if (data->fam != UCODE_MATCH_ALL &&
+		    CPUID_TO_FAMILY(cpu_id) != data->fam) {
+			data++;
+			continue;
+		}
+		if (data->model != UCODE_MATCH_ALL &&
+		    CPUID_TO_MODEL(cpu_id) != data->model) {
+			++data;
+			continue;
+		}
+		if (data->stepping != UCODE_MATCH_ALL &&
+		    CPUID_TO_STEPPING(cpu_id) != data->stepping) {
+			++data;
+			continue;
+		}
+		if ((ucode_error ? ucode_orev : ucode_nrev) < data->rev)
+			return (false);
+		return (true);
+	}
+	return (false);
+}
