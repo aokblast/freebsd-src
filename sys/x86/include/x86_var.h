@@ -132,6 +132,7 @@ void	identify_cpu1(void);
 void	identify_cpu2(void);
 void	identify_cpu_ext_features(void);
 void	identify_cpu_fixup_bsp(void);
+u_int ident_zen_cpu(void);
 void	identify_hypervisor(void);
 void	initializecpu(void);
 void	initializecpucache(void);

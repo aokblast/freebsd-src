@@ -2690,3 +2690,43 @@ cpu_getmaxphyaddr(void)
 #endif
 	return ((1ULL << cpu_maxphyaddr) - 1);
 }
+
+u_int
+ident_zen_cpu(void)
+{
+	u_int model = CPUID_TO_MODEL(cpu_id);
+
+	if (cpu_vendor_id != CPU_VENDOR_AMD)
+		return (CPUID_AMD_UNKNOWN);
+	switch (CPUID_TO_FAMILY(cpu_id)) {
+	case 0x17:
+		if ((model >= 0x00 && model <= 0x2f) ||
+		    (model >= 0x50 && model <= 0x5f))
+			return (CPUID_AMD_ZEN1);
+		if ((model >= 0x30 && model <= 0x4f) ||
+		    (model >= 0x60 && model <= 0x7f) ||
+		    (model >= 0x90 && model <= 0x91) ||
+		    (model >= 0xa0 && model <= 0xaf))
+			return (CPUID_AMD_ZEN2);
+		break;
+	case 0x19:
+		if ((model >= 0x00 && model <= 0x0f) ||
+		    (model >= 0x20 && model <= 0x5f))
+			return (CPUID_AMD_ZEN3);
+		if ((model >= 0x10 && model <= 0x1f) ||
+		    (model >= 0x60 && model <= 0xaf))
+			return (CPUID_AMD_ZEN4);
+		break;
+	case 0x1a:
+		if ((model >= 0x00 && model <= 0x2f) ||
+		    (model >= 0x40 && model <= 0x4f) ||
+		    (model >= 0x60 && model <= 0x7f))
+			return (CPUID_AMD_ZEN5);
+		if ((model >= 0x50 && model <= 0x5f) ||
+		    (model >= 0x80 && model <= 0xaf) ||
+		    (model >= 0xc0 && model <= 0xcf))
+			return (CPUID_AMD_ZEN6);
+	}
+
+	return (CPUID_AMD_UNKNOWN);
+}

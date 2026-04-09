@@ -304,6 +304,14 @@
 #endif
 #define CPUID_TO_STEPPING(id) ((id) & CPUID_STEPPING)
 
+#define CPUID_AMD_ZEN1	      0x00
+#define CPUID_AMD_ZEN2	      0x01
+#define CPUID_AMD_ZEN3	      0x02
+#define CPUID_AMD_ZEN4	      0x03
+#define CPUID_AMD_ZEN5	      0x04
+#define CPUID_AMD_ZEN6	      0x05
+#define CPUID_AMD_UNKNOWN     0xffffffff
+
 /*
  * CPUID instruction 1 ebx info
  */
