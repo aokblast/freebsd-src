@@ -207,11 +207,6 @@ struct uaudio_mixer_node {
 	struct uaudio_mixer_node *next;
 };
 
-struct uaudio_configure_msg {
-	struct usb_proc_msg hdr;
-	struct uaudio_softc *sc;
-};
-
 #define	CHAN_MAX_ALT 24
 
 struct uaudio_chan_alt {
@@ -373,7 +368,7 @@ struct uaudio_softc {
 	struct uaudio_hid sc_hid;
 	struct uaudio_search_result sc_mixer_clocks;
 	struct uaudio_mixer_node sc_mixer_node;
-	struct uaudio_configure_msg sc_config_msg[2];
+	struct usb_proc_msg sc_config_msg;
 	struct uaudio_softc_child sc_child[UAUDIO_MAX_CHILD];
 
 	struct usb_device *sc_udev;
@@ -981,10 +976,7 @@ uaudio_attach(device_t dev)
 	sc->sc_udev = uaa->device;
 	sc->sc_mixer_iface_index = uaa->info.bIfaceIndex;
 	sc->sc_mixer_iface_no = uaa->info.bIfaceNum;
-	sc->sc_config_msg[0].hdr.pm_callback = &uaudio_configure_msg;
-	sc->sc_config_msg[0].sc = sc;
-	sc->sc_config_msg[1].hdr.pm_callback = &uaudio_configure_msg;
-	sc->sc_config_msg[1].sc = sc;
+	USB_PROC_MSG_INIT(&sc->sc_config_msg, 0, uaudio_configure_msg, sc);
 
 	if (usb_test_quirk(uaa, UQ_AUDIO_SWAP_LR))
 		sc->sc_uq_audio_swap_lr = 1;
@@ -1274,9 +1266,8 @@ uaudio_detach(device_t dev)
 		sc->sc_play_chan[i].operation = CHAN_OP_DRAIN;
 		sc->sc_rec_chan[i].operation = CHAN_OP_DRAIN;
 	}
-	usb_proc_explore_mwait(sc->sc_udev,
-	    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
 	usb_proc_explore_unlock(sc->sc_udev);
+	usb_proc_explore_mwait(sc->sc_udev, &sc->sc_config_msg);
 
 	for (i = 0; i != UAUDIO_MAX_CHILD; i++) {
 		usbd_transfer_unsetup(sc->sc_play_chan[i].xfer, UAUDIO_NCHANBUFS + 1);
@@ -1545,17 +1536,15 @@ error:
 }
 
 static void
-uaudio_configure_msg(struct usb_proc_msg *pm)
+uaudio_configure_msg(void *ctx)
 {
-	struct uaudio_softc *sc = ((struct uaudio_configure_msg *)pm)->sc;
+	struct uaudio_softc *sc = ctx;
 	unsigned i;
 
-	usb_proc_explore_unlock(sc->sc_udev);
 	for (i = 0; i != UAUDIO_MAX_CHILD; i++) {
 		uaudio_configure_msg_sub(sc, &sc->sc_play_chan[i], PCMDIR_PLAY);
 		uaudio_configure_msg_sub(sc, &sc->sc_rec_chan[i], PCMDIR_REC);
 	}
-	usb_proc_explore_lock(sc->sc_udev);
 }
 
 /*========================================================================*
@@ -2834,8 +2823,7 @@ uaudio_chan_reconfigure(struct uaudio_chan *ch, uint8_t operation)
 	 * configuration, this part must be executed from the USB
 	 * explore process.
 	 */
-	(void)usb_proc_explore_msignal(sc->sc_udev,
-	    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
+	(void)usb_proc_explore_msignal(sc->sc_udev, &sc->sc_config_msg);
 }
 
 static int

@@ -91,7 +91,7 @@ typedef enum {	/* keep in sync with usb_errstr_table */
 /* typedefs */
 
 typedef void (usb_callback_t)(struct usb_xfer *, usb_error_t);
-typedef void (usb_proc_callback_t)(struct usb_proc_msg *);
+typedef void(usb_proc_callback_t)(void *);
 typedef usb_error_t (usb_handle_req_t)(struct usb_device *,
     struct usb_device_request *, const void **, uint16_t *);
 
@@ -520,13 +520,16 @@ struct usb_callout {
 /*
  * The following structure defines the USB process message header.
  */
+#ifndef USB_GLOBAL_INCLUDE_FILE
+#include <sys/taskqueue.h>
+#endif
+
 struct usb_proc_msg {
-	TAILQ_ENTRY(usb_proc_msg) pm_qentry;
-	usb_proc_callback_t *pm_callback;
-	usb_size_t pm_num;
+	struct task task;
 };
 
-#define	USB_PROC_MSG_ENQUEUED(msg)	((msg)->pm_qentry.tqe_prev != NULL)
+#define USB_PROC_MSG_INIT(msg, prio, func, context) \
+	TASK_INIT(&((msg)->task), prio, (task_fn_t *)func, context)
 
 #define	USB_FIFO_TX 0
 #define	USB_FIFO_RX 1

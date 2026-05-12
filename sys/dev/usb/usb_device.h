@@ -54,11 +54,6 @@ struct usb_symlink;		/* UGEN */
 #define	USB_UNCFG_FLAG_NONE 0x00
 #define	USB_UNCFG_FLAG_FREE_EP0	0x02		/* endpoint zero is freed */
 
-struct usb_udev_msg {
-	struct usb_proc_msg hdr;
-	struct usb_device *udev;
-};
-
 /* The following four structures makes up a tree, where we have the
  * leaf structure, "usb_host_endpoint", first, and the root structure,
  * "usb_device", last. The four structures below mirror the structure
@@ -193,7 +188,7 @@ struct usb_device {
   	struct usb_device_statistics stats_cancelled;
 
 	/* generic clear stall message */
-	struct usb_udev_msg cs_msg[2];
+	struct usb_proc_msg cs_msg;
 	struct sx enum_sx;
 	struct sx sr_sx;
   	struct sx ctrl_sx;

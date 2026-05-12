@@ -31,16 +31,6 @@
 struct usb_fs_privdata;
 
 /*
- * The following structure defines the USB explore message sent to the USB
- * explore process.
- */
-
-struct usb_bus_msg {
-	struct usb_proc_msg hdr;
-	struct usb_bus *bus;
-};
-
-/*
  * The following structure defines an USB BUS. There is one USB BUS
  * for every Host or Device controller.
  */
@@ -77,15 +67,15 @@ struct usb_bus {
 	struct usb_process control_xfer_proc;
 #endif
 
-	struct usb_bus_msg explore_msg[2];
-	struct usb_bus_msg detach_msg[2];
-	struct usb_bus_msg attach_msg[2];
-	struct usb_bus_msg suspend_msg[2];
-	struct usb_bus_msg resume_msg[2];
-	struct usb_bus_msg reset_msg[2];
-	struct usb_bus_msg shutdown_msg[2];
+	struct usb_proc_msg explore_msg;
+	struct usb_proc_msg detach_msg;
+	struct usb_proc_msg attach_msg;
+	struct usb_proc_msg suspend_msg;
+	struct usb_proc_msg resume_msg;
+	struct usb_proc_msg reset_msg;
+	struct usb_proc_msg shutdown_msg;
 #if USB_HAVE_UGEN
-	struct usb_bus_msg cleanup_msg[2];
+	struct usb_proc_msg cleanup_msg;
 	SLIST_HEAD(,usb_fs_privdata) pd_cleanup_list;
 #endif
 	/*

@@ -39,15 +39,6 @@
  * which is done asynchronously and grows the statemachine.
  */
 
-/*
- * The following structure defines the messages that is used to signal
- * the "done_p" USB process.
- */
-struct usb_done_msg {
-	struct usb_proc_msg hdr;
-	struct usb_xfer_root *xroot;
-};
-
 #define	USB_DMATAG_TO_XROOT(dpt)				\
 	__containerof(dpt, struct usb_xfer_root, dma_parent_tag)
 
@@ -62,7 +53,7 @@ struct usb_xfer_root {
 	struct usb_xfer_queue dma_q;
 #endif
 	struct usb_xfer_queue done_q;
-	struct usb_done_msg done_m[2];
+	struct usb_proc_msg done_m;
 	struct cv cv_drain;
 
 	struct usb_process *done_p;	/* pointer to callback process */

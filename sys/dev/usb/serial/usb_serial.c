@@ -151,8 +151,7 @@ static void	ucom_unit_free(int);
 static int	ucom_attach_tty(struct ucom_super_softc *, struct ucom_softc *);
 static void	ucom_detach_tty(struct ucom_super_softc *, struct ucom_softc *);
 static int	ucom_queue_command(struct ucom_softc *,
-		    usb_proc_callback_t *, struct termios *pt,
-		    struct usb_proc_msg *t0, struct usb_proc_msg *t1, bool wait);
+			struct usb_proc_msg *msg, bool wait);
 static void	ucom_shutdown(struct ucom_softc *);
 static void	ucom_ring(struct ucom_softc *, uint8_t);
 static void	ucom_break(struct ucom_softc *, uint8_t);
@@ -290,6 +289,12 @@ ucom_attach(struct ucom_super_softc *ssc, struct ucom_softc *sc,
 		ucom_unit_free(ssc->sc_unit);
 		return (error);
 	}
+	USB_PROC_MSG_INIT(&sc->sc_start_task, 0, ucom_cfg_start_transfers, sc);
+	USB_PROC_MSG_INIT(&sc->sc_open_task, 0, ucom_cfg_open, sc);
+	USB_PROC_MSG_INIT(&sc->sc_close_task, 0, ucom_cfg_close, sc);
+	USB_PROC_MSG_INIT(&sc->sc_line_state_task, 0, ucom_cfg_line_state, sc);
+	USB_PROC_MSG_INIT(&sc->sc_status_task, 0, ucom_cfg_status_change, sc);
+	USB_PROC_MSG_INIT(&sc->sc_param_task, 0, ucom_cfg_param, sc);
 	ssc->sc_subunits = subunits;
 	ssc->sc_flag = UCOM_FLAG_ATTACHED |
 	    UCOM_FLAG_FREE_UNIT | (ssc->sc_flag & UCOM_FLAG_DEVICE_MODE);
@@ -592,7 +597,7 @@ ucom_set_usb_mode(struct ucom_super_softc *ssc, enum usb_hc_mode usb_mode)
 }
 
 static void
-ucom_command_barrier_cb(struct usb_proc_msg *msg __unused)
+ucom_command_barrier_cb(void *ctx)
 {
 	/* NOP */
 }
@@ -606,32 +611,31 @@ static int
 ucom_command_barrier(struct ucom_softc *sc)
 {
 	struct ucom_super_softc *ssc = sc->sc_super;
-	struct usb_proc_msg dummy = { .pm_callback = ucom_command_barrier_cb };
-	struct usb_proc_msg *task;
-	int error;
+	struct usb_proc_msg dummy;
 
 	UCOM_MTX_ASSERT(sc, MA_OWNED);
+
+	USB_PROC_MSG_INIT(&dummy, 0, &ucom_command_barrier_cb, sc);
 
 	if (usb_proc_is_gone(&ssc->sc_tq)) {
 		DPRINTF("proc is gone\n");
 		return (ENXIO);         /* nothing to do */
 	}
 
-	task = usb_proc_msignal(&ssc->sc_tq, &dummy, &dummy);
-	error = usb_proc_mwait_sig(&ssc->sc_tq, task, task);
-	if (error == 0 && sc->sc_tty != NULL && tty_gone(sc->sc_tty))
-		error = ENXIO;
-	return (error);
+	UCOM_MTX_UNLOCK(sc);
+	usb_proc_msignal(&ssc->sc_tq, &dummy);
+	usb_proc_mwait(&ssc->sc_tq, &dummy);
+	UCOM_MTX_LOCK(sc);
+	if (sc->sc_tty != NULL && tty_gone(sc->sc_tty))
+		return (ENXIO);
+	return (0);
 }
 
 static int
-ucom_queue_command(struct ucom_softc *sc,
-    usb_proc_callback_t *fn, struct termios *pt,
-    struct usb_proc_msg *t0, struct usb_proc_msg *t1, bool wait)
+ucom_queue_command(struct ucom_softc *sc, struct usb_proc_msg *msg, bool wait)
 {
 	struct ucom_super_softc *ssc = sc->sc_super;
-	struct ucom_param_task *task;
-	int error;
+	int error = 0;
 
 	UCOM_MTX_ASSERT(sc, MA_OWNED);
 
@@ -644,39 +648,22 @@ ucom_queue_command(struct ucom_softc *sc,
 	 * "sc_mtx" mutex. It is safe to update fields in the message
 	 * structure after that the message got queued.
 	 */
-	task = (struct ucom_param_task *)
-	  usb_proc_msignal(&ssc->sc_tq, t0, t1);
-
-	/* Setup callback and softc pointers */
-	task->hdr.pm_callback = fn;
-	task->sc = sc;
-
-	/* 
-	 * Make a copy of the termios. This field is only present if
-	 * the "pt" field is not NULL.
-	 */
-	if (pt != NULL)
-		task->termios_copy = *pt;
+	usb_proc_msignal(&ssc->sc_tq, msg);
 
 	/*
 	 * Closing or opening the device should be synchronous.
 	 */
 	if (wait) {
-		error = usb_proc_mwait_sig(&ssc->sc_tq, t0, t1);
+		usb_proc_mwait(&ssc->sc_tq, msg);
 
 		/* usb_proc_mwait_sig may have dropped the tty lock. */
-		if (error == 0 && sc->sc_tty != NULL && tty_gone(sc->sc_tty))
+		UCOM_MTX_LOCK(sc);
+		if (sc->sc_tty != NULL && tty_gone(sc->sc_tty))
 			error = ENXIO;
+		UCOM_MTX_UNLOCK(sc);
 	} else {
 		error = 0;
 	}
-
-	/*
-	 * In case of multiple configure requests,
-	 * keep track of the last one!
-	 */
-	if (fn == ucom_cfg_start_transfers)
-		sc->sc_last_start_xfer = &task->hdr;
 
 	return (error);
 }
@@ -708,26 +695,24 @@ ucom_cfg_is_gone(struct ucom_softc *sc)
 {
 	struct ucom_super_softc *ssc = sc->sc_super;
 
+	UCOM_MTX_ASSERT(sc, MA_OWNED);
 	return (usb_proc_is_gone(&ssc->sc_tq));
 }
 
 static void
-ucom_cfg_start_transfers(struct usb_proc_msg *_task)
+ucom_cfg_start_transfers(void *ctx)
 {
-	struct ucom_cfg_task *task = 
-	    (struct ucom_cfg_task *)_task;
-	struct ucom_softc *sc = task->sc;
+	struct ucom_softc *sc = ctx;
 
+	UCOM_MTX_LOCK(sc);
 	if (!(sc->sc_flag & UCOM_FLAG_LL_READY)) {
-		return;
+		goto end;
 	}
 	if (!(sc->sc_flag & UCOM_FLAG_HL_READY)) {
 		/* TTY device closed */
-		return;
+		goto end;
 	}
-
-	if (_task == sc->sc_last_start_xfer)
-		sc->sc_flag |= UCOM_FLAG_GP_DATA;
+	sc->sc_flag |= UCOM_FLAG_GP_DATA;
 
 	if (sc->sc_callback->ucom_start_read) {
 		(sc->sc_callback->ucom_start_read) (sc);
@@ -735,6 +720,8 @@ ucom_cfg_start_transfers(struct usb_proc_msg *_task)
 	if (sc->sc_callback->ucom_start_write) {
 		(sc->sc_callback->ucom_start_write) (sc);
 	}
+end:
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static void
@@ -756,14 +743,13 @@ ucom_start_transfers(struct ucom_softc *sc)
 }
 
 static void
-ucom_cfg_open(struct usb_proc_msg *_task)
+ucom_cfg_open(void *ctx)
 {
-	struct ucom_cfg_task *task = 
-	    (struct ucom_cfg_task *)_task;
-	struct ucom_softc *sc = task->sc;
+	struct ucom_softc *sc = ctx;
 
 	DPRINTF("\n");
 
+	UCOM_MTX_LOCK(sc);
 	if (sc->sc_flag & UCOM_FLAG_LL_READY) {
 		/* already opened */
 
@@ -777,6 +763,7 @@ ucom_cfg_open(struct usb_proc_msg *_task)
 			usb_pause_mtx(sc->sc_mtx, hz / 10);
 		}
 	}
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static int
@@ -823,21 +810,23 @@ ucom_open(struct tty *tp)
 	sc->sc_jitterbuf_in = 0;
 	sc->sc_jitterbuf_out = 0;
 
-	error = ucom_queue_command(sc, ucom_cfg_open, NULL,
-	    &sc->sc_open_task[0].hdr,
-	    &sc->sc_open_task[1].hdr, true);
-	if (error != 0)
+	UCOM_MTX_UNLOCK(sc);
+	error = ucom_queue_command(sc, &sc->sc_open_task, true);
+	if (error != 0) {
+		UCOM_MTX_LOCK(sc);
 		goto out;
+	}
 
 	/*
 	 * Queue transfer enable command last, we'll have a barrier later so we
 	 * don't need to wait on this to complete specifically.
 	 */
-	error = ucom_queue_command(sc, ucom_cfg_start_transfers, NULL,
-	    &sc->sc_start_task[0].hdr,
-	    &sc->sc_start_task[1].hdr, true);
-	if (error != 0)
+	error = ucom_queue_command(sc, &sc->sc_start_task, true);
+	if (error != 0) {
+		UCOM_MTX_LOCK(sc);
 		goto out;
+	}
+	UCOM_MTX_LOCK(sc);
 
 	if (sc->sc_tty == NULL || (sc->sc_tty->t_termios.c_cflag & CNO_RTSDTR) == 0)
 		ucom_modem(tp, SER_DTR | SER_RTS, 0);
@@ -854,14 +843,13 @@ out:
 }
 
 static void
-ucom_cfg_close(struct usb_proc_msg *_task)
+ucom_cfg_close(void *ctx)
 {
-	struct ucom_cfg_task *task = 
-	    (struct ucom_cfg_task *)_task;
-	struct ucom_softc *sc = task->sc;
+	struct ucom_softc *sc = ctx;
 
 	DPRINTF("\n");
 
+	UCOM_MTX_LOCK(sc);
 	if (sc->sc_flag & UCOM_FLAG_LL_READY) {
 		sc->sc_flag &= ~UCOM_FLAG_LL_READY;
 		if (sc->sc_callback->ucom_cfg_close)
@@ -869,6 +857,7 @@ ucom_cfg_close(struct usb_proc_msg *_task)
 	} else {
 		/* already closed */
 	}
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static void
@@ -886,9 +875,9 @@ ucom_close(struct tty *tp)
 	}
 	ucom_shutdown(sc);
 
-	(void)ucom_queue_command(sc, ucom_cfg_close, NULL,
-	    &sc->sc_close_task[0].hdr,
-	    &sc->sc_close_task[1].hdr, true);
+	UCOM_MTX_UNLOCK(sc);
+	ucom_queue_command(sc, &sc->sc_close_task, true);
+	UCOM_MTX_LOCK(sc);
 
 	sc->sc_flag &= ~(UCOM_FLAG_HL_READY | UCOM_FLAG_RTS_IFLOW);
 
@@ -1047,18 +1036,18 @@ ucom_modem(struct tty *tp, int sigon, int sigoff)
 }
 
 static void
-ucom_cfg_line_state(struct usb_proc_msg *_task)
+ucom_cfg_line_state(void *ctx)
 {
-	struct ucom_cfg_task *task = 
-	    (struct ucom_cfg_task *)_task;
-	struct ucom_softc *sc = task->sc;
+	struct ucom_softc *sc = ctx;
 	uint8_t notch_bits;
 	uint8_t any_bits;
 	uint8_t prev_value;
 	uint8_t last_value;
 	uint8_t mask;
 
+	UCOM_MTX_LOCK(sc);
 	if (!(sc->sc_flag & UCOM_FLAG_LL_READY)) {
+		UCOM_MTX_UNLOCK(sc);
 		return;
 	}
 
@@ -1111,6 +1100,7 @@ ucom_cfg_line_state(struct usb_proc_msg *_task)
 	if (any_bits & UCOM_LS_RING)
 		sc->sc_callback->ucom_cfg_set_ring(sc,
 		    (last_value & UCOM_LS_RING) ? 1 : 0);
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static void
@@ -1135,9 +1125,7 @@ ucom_line_state(struct ucom_softc *sc,
 	 * defer driver programming - we don't propagate any error from
 	 * this call because we'll catch such errors further up the call stack.
 	 */
-	(void)ucom_queue_command(sc, ucom_cfg_line_state, NULL,
-	    &sc->sc_line_state_task[0].hdr,
-	    &sc->sc_line_state_task[1].hdr, false);
+	(void)ucom_queue_command(sc, &sc->sc_line_state_task, false);
 }
 
 static void
@@ -1185,11 +1173,9 @@ ucom_rts(struct ucom_softc *sc, uint8_t onoff)
 }
 
 static void
-ucom_cfg_status_change(struct usb_proc_msg *_task)
+ucom_cfg_status_change(void *ctx)
 {
-	struct ucom_cfg_task *task = 
-	    (struct ucom_cfg_task *)_task;
-	struct ucom_softc *sc = task->sc;
+	struct ucom_softc *sc = ctx;
 	struct tty *tp;
 	int onoff;
 	uint8_t new_msr;
@@ -1200,14 +1186,14 @@ ucom_cfg_status_change(struct usb_proc_msg *_task)
 
 	tp = sc->sc_tty;
 
-	UCOM_MTX_ASSERT(sc, MA_OWNED);
+	UCOM_MTX_ASSERT(sc, MA_NOTOWNED);
 
+	UCOM_MTX_LOCK(sc);
 	if (!(sc->sc_flag & UCOM_FLAG_LL_READY)) {
-		return;
+		goto end;
 	}
-	if (sc->sc_callback->ucom_cfg_get_status == NULL) {
-		return;
-	}
+	if (sc->sc_callback->ucom_cfg_get_status == NULL)
+		goto end;
 	/* get status */
 
 	new_msr = 0;
@@ -1215,10 +1201,9 @@ ucom_cfg_status_change(struct usb_proc_msg *_task)
 
 	(sc->sc_callback->ucom_cfg_get_status) (sc, &new_lsr, &new_msr);
 
-	if (!(sc->sc_flag & UCOM_FLAG_HL_READY)) {
-		/* TTY device closed */
-		return;
-	}
+	if (!(sc->sc_flag & UCOM_FLAG_HL_READY))
+		goto end;
+
 	msr_delta = (sc->sc_msr ^ new_msr);
 	lsr_delta = (sc->sc_lsr ^ new_lsr);
 
@@ -1278,6 +1263,8 @@ ucom_cfg_status_change(struct usb_proc_msg *_task)
 		ttydisc_rint(tp, 0, TRE_PARITY);
 		ttydisc_rint_done(tp);
 	}
+end:
+	UCOM_MTX_UNLOCK(sc);
 }
 
 void
@@ -1293,29 +1280,30 @@ ucom_status_change(struct ucom_softc *sc)
 	}
 	DPRINTF("\n");
 
-	(void)ucom_queue_command(sc, ucom_cfg_status_change, NULL,
-	    &sc->sc_status_task[0].hdr,
-	    &sc->sc_status_task[1].hdr, true);
+	UCOM_MTX_UNLOCK(sc);
+	(void)ucom_queue_command(sc, &sc->sc_status_task, true);
+	UCOM_MTX_LOCK(sc);
 }
 
 static void
-ucom_cfg_param(struct usb_proc_msg *_task)
+ucom_cfg_param(void *ctx)
 {
-	struct ucom_param_task *task = 
-	    (struct ucom_param_task *)_task;
-	struct ucom_softc *sc = task->sc;
+	struct ucom_softc *sc = ctx;
 
+	UCOM_MTX_LOCK(sc);
 	if (!(sc->sc_flag & UCOM_FLAG_LL_READY)) {
-		return;
+		goto end;
 	}
 	if (sc->sc_callback->ucom_cfg_param == NULL) {
-		return;
+		goto end;
 	}
 
-	(sc->sc_callback->ucom_cfg_param) (sc, &task->termios_copy);
+	(sc->sc_callback->ucom_cfg_param)(sc, &sc->t);
 
 	/* wait a little */
 	usb_pause_mtx(sc->sc_mtx, hz / 10);
+end:
+	UCOM_MTX_UNLOCK(sc);
 }
 
 static int
@@ -1367,18 +1355,21 @@ ucom_param(struct tty *tp, struct termios *t)
 	sc->sc_flag &= ~UCOM_FLAG_GP_DATA;
 
 	/* Queue baud rate programming command first */
-	error = ucom_queue_command(sc, ucom_cfg_param, t,
-	    &sc->sc_param_task[0].hdr,
-	    &sc->sc_param_task[1].hdr, true);
-	if (error != 0)
+	sc->t = *t;
+	UCOM_MTX_UNLOCK(sc);
+	error = ucom_queue_command(sc, &sc->sc_param_task, true);
+	if (error != 0) {
+		UCOM_MTX_LOCK(sc);
 		goto done;
+	}
 
 	/* Queue transfer enable command last */
-	error = ucom_queue_command(sc, ucom_cfg_start_transfers, NULL,
-	    &sc->sc_start_task[0].hdr,
-	    &sc->sc_start_task[1].hdr, true);
-	if (error != 0)
+	error = ucom_queue_command(sc, &sc->sc_start_task, true);
+	if (error != 0) {
+		UCOM_MTX_LOCK(sc);
 		goto done;
+	}
+	UCOM_MTX_LOCK(sc);
 
 	if (t->c_cflag & CRTS_IFLOW) {
 		sc->sc_flag |= UCOM_FLAG_RTS_IFLOW;

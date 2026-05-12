@@ -633,10 +633,8 @@ xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 	cv_init(&sc->sc_cmd_cv, "CMDQ");
 	sx_init(&sc->sc_cmd_sx, "CMDQ lock");
 
-	sc->sc_config_msg[0].hdr.pm_callback = &xhci_configure_msg;
-	sc->sc_config_msg[0].bus = &sc->sc_bus;
-	sc->sc_config_msg[1].hdr.pm_callback = &xhci_configure_msg;
-	sc->sc_config_msg[1].bus = &sc->sc_bus;
+	USB_PROC_MSG_INIT(&sc->sc_config_msg, 0, xhci_configure_msg,
+	    &sc->sc_bus);
 
 	return (0);
 }
@@ -2977,8 +2975,8 @@ xhci_transfer_insert(struct usb_xfer *xfer)
 		DPRINTFN(8, "Not running\n");
 
 		/* start configuration */
-		(void)usb_proc_msignal(USB_BUS_CONTROL_XFER_PROC(&sc->sc_bus),
-		    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
+		usb_proc_msignal(USB_BUS_CONTROL_XFER_PROC(&sc->sc_bus),
+		    &sc->sc_config_msg);
 		return (0);
 	}
 
@@ -3993,18 +3991,19 @@ xhci_start_dma_delay(struct usb_xfer *xfer)
 	usbd_transfer_enqueue(&sc->sc_bus.intr_q, xfer);
 
 	(void)usb_proc_msignal(USB_BUS_CONTROL_XFER_PROC(&sc->sc_bus),
-	    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
+	    &sc->sc_config_msg);
 }
 
 static void
-xhci_configure_msg(struct usb_proc_msg *pm)
+xhci_configure_msg(void *ctx)
 {
 	struct xhci_softc *sc;
 	struct xhci_endpoint_ext *pepext;
 	struct usb_xfer *xfer;
 
-	sc = XHCI_BUS2SC(((struct usb_bus_msg *)pm)->bus);
+	sc = XHCI_BUS2SC(ctx);
 
+	USB_BUS_LOCK(&sc->sc_bus);
 restart:
 	TAILQ_FOREACH(xfer, &sc->sc_bus.intr_q.head, wait_entry) {
 		pepext = xhci_get_endpoint_ext(xfer->xroot->udev,
@@ -4074,6 +4073,7 @@ restart:
 		xhci_device_generic_multi_enter(xfer->endpoint,
 		    xfer->stream_id, NULL);
 	}
+	USB_BUS_UNLOCK(&sc->sc_bus);
 }
 
 static void

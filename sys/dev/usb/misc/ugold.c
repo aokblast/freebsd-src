@@ -87,19 +87,13 @@ static uint8_t cmd_type[8] = {0x01, 0x86, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00};
 
 #endif
 
-struct ugold_softc;
-struct ugold_readout_msg {
-	struct usb_proc_msg hdr;
-	struct ugold_softc *sc;
-};
-
 struct ugold_softc {
 	struct usb_device *sc_udev;
 	struct usb_xfer *sc_xfer[UGOLD_N_TRANSFER];
 
 	struct callout sc_callout;
 	struct mtx sc_mtx;
-	struct ugold_readout_msg sc_readout_msg[2];
+	struct usb_proc_msg sc_readout_msg;
 
 	int	sc_num_sensors;
 	int	sc_sensor[UGOLD_MAX_SENSORS];
@@ -160,10 +154,7 @@ ugold_timeout(void *arg)
 {
 	struct ugold_softc *sc = arg;
 
-	usb_proc_explore_lock(sc->sc_udev);
-	(void)usb_proc_explore_msignal(sc->sc_udev,
-	    &sc->sc_readout_msg[0], &sc->sc_readout_msg[1]);
-	usb_proc_explore_unlock(sc->sc_udev);
+	usb_proc_explore_msignal(sc->sc_udev, &sc->sc_readout_msg);
 
 	callout_reset(&sc->sc_callout, 6 * hz, &ugold_timeout, sc);
 }
@@ -196,10 +187,7 @@ ugold_attach(device_t dev)
 	int i;
 
 	sc->sc_udev = uaa->device;
-	sc->sc_readout_msg[0].hdr.pm_callback = &ugold_readout_msg;
-	sc->sc_readout_msg[0].sc = sc;
-	sc->sc_readout_msg[1].hdr.pm_callback = &ugold_readout_msg;
-	sc->sc_readout_msg[1].sc = sc;
+	USB_PROC_MSG_INIT(&sc->sc_readout_msg, 0, ugold_readout_msg, sc);
 	sc->sc_iface_index[0] = uaa->info.bIfaceIndex;
 	sc->sc_iface_index[1] = uaa->info.bIfaceIndex + 1;
 
@@ -292,10 +280,7 @@ ugold_detach(device_t dev)
 
 	callout_drain(&sc->sc_callout);
 
-	usb_proc_explore_lock(sc->sc_udev);
-	usb_proc_explore_mwait(sc->sc_udev,
-	    &sc->sc_readout_msg[0], &sc->sc_readout_msg[1]);
-	usb_proc_explore_unlock(sc->sc_udev);
+	usb_proc_explore_mwait(sc->sc_udev, &sc->sc_readout_msg);
 
 	usbd_transfer_unsetup(sc->sc_xfer, UGOLD_N_TRANSFER);
 
@@ -385,11 +370,9 @@ ugold_issue_cmd(struct ugold_softc *sc, uint8_t *cmd, int len)
 }
 
 static void
-ugold_readout_msg(struct usb_proc_msg *pm)
+ugold_readout_msg(void *ctx)
 {
-	struct ugold_softc *sc = ((struct ugold_readout_msg *)pm)->sc;
-
-	usb_proc_explore_unlock(sc->sc_udev);
+	struct ugold_softc *sc = ctx;
 
 	mtx_lock(&sc->sc_mtx);
 	if (sc->sc_num_sensors == 0)
@@ -397,6 +380,4 @@ ugold_readout_msg(struct usb_proc_msg *pm)
 
 	ugold_issue_cmd(sc, cmd_data, sizeof(cmd_data));
 	mtx_unlock(&sc->sc_mtx);
-
-	usb_proc_explore_lock(sc->sc_udev);
 }

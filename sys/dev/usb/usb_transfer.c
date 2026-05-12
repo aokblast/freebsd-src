@@ -136,7 +136,7 @@ static void	usbd_update_max_frame_size(struct usb_xfer *);
 static void	usbd_transfer_unsetup_sub(struct usb_xfer_root *, uint8_t);
 static void	usbd_control_transfer_init(struct usb_xfer *);
 static int	usbd_setup_ctrl_transfer(struct usb_xfer *);
-static void	usb_callback_proc(struct usb_proc_msg *);
+static void	usb_callback_proc(void *);
 static void	usbd_callback_ss_done_defer(struct usb_xfer *);
 static void	usbd_callback_wrapper(struct usb_xfer_queue *);
 static void	usbd_transfer_start_cb(void *);
@@ -1092,11 +1092,8 @@ usbd_transfer_setup(struct usb_device *udev,
 			TAILQ_INIT(&info->dma_q.head);
 			info->dma_q.command = &usb_bdma_work_loop;
 #endif
-			info->done_m[0].hdr.pm_callback = &usb_callback_proc;
-			info->done_m[0].xroot = info;
-			info->done_m[1].hdr.pm_callback = &usb_callback_proc;
-			info->done_m[1].xroot = info;
-
+			USB_PROC_MSG_INIT(&info->done_m, 0, usb_callback_proc,
+			    info);
 			/* 
 			 * In device side mode control endpoint
 			 * requests need to run from a separate
@@ -1386,10 +1383,9 @@ usbd_transfer_unsetup_sub(struct usb_xfer_root *info, uint8_t needs_delay)
 		}
 	}
 
-	/* make sure that our done messages are not queued anywhere */
-	usb_proc_mwait(info->done_p, &info->done_m[0], &info->done_m[1]);
-
 	USB_BUS_UNLOCK(info->bus);
+	/* make sure that our done messages are not queued anywhere */
+	usb_proc_mwait(info->done_p, &info->done_m);
 
 #if USB_HAVE_BUSDMA
 	/* free DMA'able memory, if any */
@@ -2326,13 +2322,9 @@ usbd_xfer_set_frame_len(struct usb_xfer *xfer, usb_frcount_t frindex,
  * This function performs USB callbacks.
  *------------------------------------------------------------------------*/
 static void
-usb_callback_proc(struct usb_proc_msg *_pm)
+usb_callback_proc(void *ctx)
 {
-	struct usb_done_msg *pm = (void *)_pm;
-	struct usb_xfer_root *info = pm->xroot;
-
-	/* Change locking order */
-	USB_BUS_UNLOCK(info->bus);
+	struct usb_xfer_root *info = ctx;
 
 	/*
 	 * We exploit the fact that the mutex is the same for all
@@ -2345,6 +2337,7 @@ usb_callback_proc(struct usb_proc_msg *_pm)
 	usb_command_wrapper(&info->done_q,
 	    info->done_q.curr);
 
+	USB_BUS_UNLOCK(info->bus);
 	USB_MTX_UNLOCK(info->xfer_mtx);
 }
 
@@ -2371,8 +2364,7 @@ usbd_callback_ss_done_defer(struct usb_xfer *xfer)
 	         * will have a Lock Order Reversal, LOR, if we try to
 	         * proceed !
 	         */
-		(void) usb_proc_msignal(info->done_p,
-		    &info->done_m[0], &info->done_m[1]);
+		(void)usb_proc_msignal(info->done_p, &info->done_m);
 	} else {
 		/* clear second recurse flag */
 		pq->recurse_2 = 0;
@@ -2414,8 +2406,7 @@ usbd_callback_wrapper(struct usb_xfer_queue *pq)
 		 * Postponing the callback also ensures that other USB
 		 * transfer queues get a chance.
 	         */
-		(void) usb_proc_msignal(info->done_p,
-		    &info->done_m[0], &info->done_m[1]);
+		usb_proc_msignal(info->done_p, &info->done_m);
 		return;
 	}
 	/*
@@ -2843,9 +2834,8 @@ usbd_pipe_start(struct usb_xfer_queue *pq)
 				    udev, ep, &did_stall);
 			} else if (udev->ctrl_xfer[1]) {
 				info = udev->ctrl_xfer[1]->xroot;
-				usb_proc_msignal(
-				    USB_BUS_CS_PROC(info->bus),
-				    &udev->cs_msg[0], &udev->cs_msg[1]);
+				usb_proc_msignal(USB_BUS_CS_PROC(info->bus),
+				    &udev->cs_msg);
 			} else {
 				/* should not happen */
 				DPRINTFN(0, "No stall handler\n");
@@ -3429,7 +3419,7 @@ usbd_transfer_poll(struct usb_xfer **ppxfer, uint16_t max)
 	struct usb_xfer *xfer;
 	struct usb_xfer_root *xroot;
 	struct usb_device *udev;
-	struct usb_proc_msg *pm;
+	struct task *task;
 	struct usb_bus *bus;
 	uint16_t n;
 	uint16_t drop_bus_spin;
@@ -3479,13 +3469,6 @@ usbd_transfer_poll(struct usb_xfer **ppxfer, uint16_t max)
 			}
 		}
 
-		/* Make sure cv_signal() and cv_broadcast() is not called */
-		USB_BUS_CONTROL_XFER_PROC(bus)->up_msleep = 0;
-		USB_BUS_EXPLORE_PROC(bus)->up_msleep = 0;
-		USB_BUS_GIANT_PROC(bus)->up_msleep = 0;
-		USB_BUS_NON_GIANT_ISOC_PROC(bus)->up_msleep = 0;
-		USB_BUS_NON_GIANT_BULK_PROC(bus)->up_msleep = 0;
-
 		/* poll USB hardware */
 		(bus->methods->xfer_poll) (bus);
 
@@ -3494,17 +3477,16 @@ usbd_transfer_poll(struct usb_xfer **ppxfer, uint16_t max)
 		/* check for clear stall */
 		if (udev->ctrl_xfer[1] != NULL) {
 			/* poll clear stall start */
-			pm = &udev->cs_msg[0].hdr;
-			(pm->pm_callback) (pm);
+			task = &udev->cs_msg.task;
+			(task->ta_func)(task->ta_context, 0);
 			/* poll clear stall done thread */
-			pm = &udev->ctrl_xfer[1]->
-			    xroot->done_m[0].hdr;
-			(pm->pm_callback) (pm);
+			task = &udev->ctrl_xfer[1]->xroot->done_m.task;
+			(task->ta_func)(task->ta_context, 0);
 		}
 
 		/* poll done thread */
-		pm = &xroot->done_m[0].hdr;
-		(pm->pm_callback) (pm);
+		task = &xroot->done_m.task;
+		(task->ta_func)(task->ta_context, 0);
 
 		USB_BUS_UNLOCK(xroot->bus);
 

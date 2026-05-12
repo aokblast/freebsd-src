@@ -49,7 +49,7 @@ struct usb_hub {
 	usb_error_t (*explore) (struct usb_device *hub);
 	void   *hubsoftc;
 #if USB_HAVE_TT_SUPPORT
-	struct usb_udev_msg tt_msg[2];
+	struct usb_proc_msg tt_msg;
 #endif
 	usb_size_t uframe_usage[USB_HS_MICRO_FRAMES_MAX];
 	uint16_t portpower;		/* mA per USB port */

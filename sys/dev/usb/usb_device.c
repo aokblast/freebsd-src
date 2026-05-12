@@ -1640,13 +1640,11 @@ usb_suspend_resume(struct usb_device *udev, uint8_t do_suspend)
  * This function performs generic USB clear stall operations.
  *------------------------------------------------------------------------*/
 static void
-usbd_clear_stall_proc(struct usb_proc_msg *_pm)
+usbd_clear_stall_proc(void *ctx)
 {
-	struct usb_udev_msg *pm = (void *)_pm;
-	struct usb_device *udev = pm->udev;
+	struct usb_device *udev = ctx;
 
 	/* Change lock */
-	USB_BUS_UNLOCK(udev->bus);
 	USB_MTX_LOCK(&udev->device_mtx);
 
 	/* Start clear stall callback */
@@ -1654,7 +1652,6 @@ usbd_clear_stall_proc(struct usb_proc_msg *_pm)
 
 	/* Change lock */
 	USB_MTX_UNLOCK(&udev->device_mtx);
-	USB_BUS_LOCK(udev->bus);
 }
 
 /*------------------------------------------------------------------------*
@@ -1809,10 +1806,7 @@ usb_alloc_device(device_t parent_dev, struct usb_bus *bus,
 	mtx_init(&udev->device_mtx, "USB device mutex", NULL, MTX_DEF);
 
 	/* initialise generic clear stall */
-	udev->cs_msg[0].hdr.pm_callback = &usbd_clear_stall_proc;
-	udev->cs_msg[0].udev = udev;
-	udev->cs_msg[1].hdr.pm_callback = &usbd_clear_stall_proc;
-	udev->cs_msg[1].udev = udev;
+	USB_PROC_MSG_INIT(&udev->cs_msg, 0, usbd_clear_stall_proc, udev);
 
 	/* initialise some USB device fields */
 	udev->parent_hub = parent_hub;
@@ -2194,8 +2188,7 @@ usb_destroy_dev(struct usb_fs_privdata *pd)
 	USB_BUS_LOCK(bus);
 	SLIST_INSERT_HEAD(&bus->pd_cleanup_list, pd, pd_next);
 	/* get cleanup going */
-	usb_proc_msignal(USB_BUS_EXPLORE_PROC(bus),
-	    &bus->cleanup_msg[0], &bus->cleanup_msg[1]);
+	usb_proc_msignal(USB_BUS_EXPLORE_PROC(bus), &bus->cleanup_msg);
 	USB_BUS_UNLOCK(bus);
 }
 
@@ -2339,14 +2332,11 @@ usb_free_device(struct usb_device *udev, uint8_t flag)
 	/* template unsetup, if any */
 	(usb_temp_unsetup_p) (udev);
 
-	/* 
+	/*
 	 * Make sure that our clear-stall messages are not queued
 	 * anywhere:
 	 */
-	USB_BUS_LOCK(udev->bus);
-	usb_proc_mwait(USB_BUS_CS_PROC(udev->bus),
-	    &udev->cs_msg[0], &udev->cs_msg[1]);
-	USB_BUS_UNLOCK(udev->bus);
+	usb_proc_mwait(USB_BUS_CS_PROC(udev->bus), &udev->cs_msg);
 
 	/* wait for all references to go away */
 	usb_wait_pending_refs(udev);

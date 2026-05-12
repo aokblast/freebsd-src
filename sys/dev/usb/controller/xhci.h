@@ -496,7 +496,7 @@ struct xhci_softc {
 	/* base device */
 	struct usb_bus		sc_bus;
 	/* configure message */
-	struct usb_bus_msg	sc_config_msg[2];
+	struct usb_proc_msg	sc_config_msg;
 
 	struct usb_callout	sc_callout;
 

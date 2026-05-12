@@ -381,11 +381,6 @@ enum {
 	UMB_N_TRANSFER,
 };
 
-struct umb_task {
-	struct usb_proc_msg	 hdr;
-	struct umb_softc	*sc;
-};
-
 struct umb_softc {
 	device_t		 sc_dev;
 	struct ifnet		*sc_if;
@@ -407,10 +402,10 @@ struct umb_softc {
 	int			 sc_cid;
 
 	struct usb_process	 sc_taskqueue;
-	struct umb_task		 sc_proc_attach_task[2];
-	struct umb_task		 sc_proc_start_task[2];
-	struct umb_task		 sc_proc_state_task[2];
-	struct umb_task		 sc_proc_get_response_task[2];
+	struct usb_proc_msg		 sc_proc_attach_task;
+	struct usb_proc_msg		 sc_proc_start_task;
+	struct usb_proc_msg		 sc_proc_state_task;
+	struct usb_proc_msg		 sc_proc_get_response_task;
 
 	int			 sc_nresp;
 	struct mtx		 sc_mutex;

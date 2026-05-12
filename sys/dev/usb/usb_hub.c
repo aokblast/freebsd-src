@@ -224,10 +224,9 @@ uhub_intr_callback(struct usb_xfer *xfer, usb_error_t error)
  *------------------------------------------------------------------------*/
 #if USB_HAVE_TT_SUPPORT
 static void
-uhub_reset_tt_proc(struct usb_proc_msg *_pm)
+uhub_reset_tt_proc(void *ctx)
 {
-	struct usb_udev_msg *pm = (void *)_pm;
-	struct usb_device *udev = pm->udev;
+	struct usb_device *udev = ctx;
 	struct usb_hub *hub;
 	struct uhub_softc *sc;
 
@@ -239,13 +238,11 @@ uhub_reset_tt_proc(struct usb_proc_msg *_pm)
 		return;
 
 	/* Change lock */
-	USB_BUS_UNLOCK(udev->bus);
 	USB_MTX_LOCK(&sc->sc_mtx);
 	/* Start transfer */
 	usbd_transfer_start(sc->sc_xfer[UHUB_RESET_TT_TRANSFER]);
 	/* Change lock */
 	USB_MTX_UNLOCK(&sc->sc_mtx);
-	USB_BUS_LOCK(udev->bus);
 }
 #endif
 
@@ -316,8 +313,7 @@ uhub_tt_buffer_reset_async_locked(struct usb_device *child, struct usb_endpoint 
 	}
 	up->req_reset_tt = req;
 	/* get reset transfer started */
-	usb_proc_msignal(USB_BUS_TT_PROC(udev->bus),
-	    &hub->tt_msg[0], &hub->tt_msg[1]);
+	usb_proc_msignal(USB_BUS_TT_PROC(udev->bus), &hub->tt_msg);
 }
 #endif
 
@@ -1380,10 +1376,7 @@ uhub_attach(device_t dev)
 	hub->nports = nports;
 	hub->hubudev = udev;
 #if USB_HAVE_TT_SUPPORT
-	hub->tt_msg[0].hdr.pm_callback = &uhub_reset_tt_proc;
-	hub->tt_msg[0].udev = udev;
-	hub->tt_msg[1].hdr.pm_callback = &uhub_reset_tt_proc;
-	hub->tt_msg[1].udev = udev;
+	USB_PROC_MSG_INIT(&hub->tt_msg, 0, uhub_reset_tt_proc, udev);
 #endif
 	/* if self powered hub, give ports maximum current */
 	if (udev->flags.self_powered) {
@@ -1576,10 +1569,7 @@ uhub_detach(device_t dev)
 
 #if USB_HAVE_TT_SUPPORT
 	/* Make sure our TT messages are not queued anywhere */
-	USB_BUS_LOCK(bus);
-	usb_proc_mwait(USB_BUS_TT_PROC(bus),
-	    &hub->tt_msg[0], &hub->tt_msg[1]);
-	USB_BUS_UNLOCK(bus);
+	usb_proc_mwait(USB_BUS_TT_PROC(bus), &hub->tt_msg);
 #endif
 
 #if (USB_HAVE_FIXED_PORT == 0)
@@ -2267,8 +2257,6 @@ usb_bus_port_set_device(struct usb_bus *bus, struct usb_port *up,
 void
 usb_needs_explore(struct usb_bus *bus, uint8_t do_probe)
 {
-	uint8_t do_unlock;
-
 	DPRINTF("\n");
 
 	if (cold != 0) {
@@ -2285,22 +2273,11 @@ usb_needs_explore(struct usb_bus *bus, uint8_t do_probe)
 		DPRINTF("No root HUB\n");
 		return;
 	}
-	if (mtx_owned(&bus->bus_mtx)) {
-		do_unlock = 0;
-	} else {
-		USB_BUS_LOCK(bus);
-		do_unlock = 1;
-	}
+
 	if (do_probe) {
 		bus->do_probe = 1;
 	}
-	if (usb_proc_msignal(USB_BUS_EXPLORE_PROC(bus),
-	    &bus->explore_msg[0], &bus->explore_msg[1])) {
-		/* ignore */
-	}
-	if (do_unlock) {
-		USB_BUS_UNLOCK(bus);
-	}
+	usb_proc_msignal(USB_BUS_EXPLORE_PROC(bus), &bus->explore_msg);
 }
 
 /*------------------------------------------------------------------------*

@@ -170,7 +170,7 @@ static device_attach_t umb_attach;
 static device_detach_t umb_detach;
 static device_suspend_t umb_suspend;
 static device_resume_t umb_resume;
-static void	 umb_attach_task(struct usb_proc_msg *);
+static void	 umb_attach_task(void *);
 static usb_handle_request_t umb_handle_request;
 static int	 umb_deactivate(device_t);
 static void	 umb_ncm_setup(struct umb_softc *, struct usb_config *);
@@ -181,7 +181,7 @@ static void	 umb_input(if_t , struct mbuf *);
 static int	 umb_output(if_t , struct mbuf *,
 		    const struct sockaddr *, struct route *);
 static void	 umb_start(if_t );
-static void	 umb_start_task(struct usb_proc_msg *);
+static void	 umb_start_task(void *);
 #if 0
 static void	 umb_watchdog(if_t );
 #endif
@@ -190,14 +190,13 @@ static void	 umb_statechg_timeout(void *);
 static int	 umb_mediachange(if_t );
 static void	 umb_mediastatus(if_t , struct ifmediareq *);
 
-static void	 umb_add_task(struct umb_softc *sc, usb_proc_callback_t,
-		    struct usb_proc_msg *, struct usb_proc_msg *, int);
+static void	 umb_add_task(struct umb_softc *sc, struct usb_proc_msg *, int);
 static void	 umb_newstate(struct umb_softc *, enum umb_state, int);
-static void	 umb_state_task(struct usb_proc_msg *);
+static void	 umb_state_task(void *);
 static void	 umb_up(struct umb_softc *);
 static void	 umb_down(struct umb_softc *, int);
 
-static void	 umb_get_response_task(struct usb_proc_msg *);
+static void	 umb_get_response_task(void *);
 
 static void	 umb_decode_response(struct umb_softc *, void *, int);
 static void	 umb_handle_indicate_status_msg(struct umb_softc *, void *,
@@ -513,6 +512,11 @@ umb_attach(device_t dev)
 				device_get_nameunit(sc->sc_dev),
 				USB_PRI_MED) != 0)
 		goto fail;
+	USB_PROC_MSG_INIT(&sc->sc_proc_attach_task, 0, umb_attach_task, sc);
+	USB_PROC_MSG_INIT(&sc->sc_proc_start_task, 0, umb_start_task, sc);
+	USB_PROC_MSG_INIT(&sc->sc_proc_state_task, 0, umb_state_task, sc);
+	USB_PROC_MSG_INIT(&sc->sc_proc_get_response_task, 0,
+	    umb_get_response_task, sc);
 
 	DPRINTFN(2, "ctrl-ifno#%d: data-ifno#%d\n", sc->sc_ctrl_ifaceno,
 	    data_ifaceno);
@@ -553,9 +557,7 @@ umb_attach(device_t dev)
 
 	/* defer attaching the interface */
 	mtx_lock(&sc->sc_mutex);
-	umb_add_task(sc, umb_attach_task,
-			&sc->sc_proc_attach_task[0].hdr,
-			&sc->sc_proc_attach_task[1].hdr, 0);
+	umb_add_task(sc, &sc->sc_proc_attach_task, 0);
 	mtx_unlock(&sc->sc_mutex);
 
 	return (0);
@@ -566,13 +568,10 @@ fail:
 }
 
 static void
-umb_attach_task(struct usb_proc_msg *msg)
+umb_attach_task(void *ctx)
 {
-	struct umb_task *task = (struct umb_task *)msg;
-	struct umb_softc *sc = task->sc;
+	struct umb_softc *sc = ctx;
 	if_t ifp;
-
-	mtx_unlock(&sc->sc_mutex);
 
 	CURVNET_SET_QUIET(vnet0);
 
@@ -611,7 +610,6 @@ umb_attach_task(struct usb_proc_msg *msg)
 	CURVNET_RESTORE();
 
 	umb_init(sc);
-	mtx_lock(&sc->sc_mutex);
 }
 
 static int
@@ -759,9 +757,7 @@ umb_ioctl(if_t ifp, u_long cmd, caddr_t data)
 		break;
 	case SIOCSIFFLAGS:
 		mtx_lock(&sc->sc_mutex);
-		umb_add_task(sc, umb_state_task,
-				&sc->sc_proc_state_task[0].hdr,
-				&sc->sc_proc_state_task[1].hdr, 1);
+		umb_add_task(sc, &sc->sc_proc_state_task, 1);
 		mtx_unlock(&sc->sc_mutex);
 		break;
 	case SIOCGUMBINFO:
@@ -834,9 +830,7 @@ umb_init(void *arg)
 	struct umb_softc *sc = arg;
 
 	mtx_lock(&sc->sc_mutex);
-	umb_add_task(sc, umb_start_task,
-			&sc->sc_proc_start_task[0].hdr,
-			&sc->sc_proc_start_task[1].hdr, 0);
+	umb_add_task(sc, &sc->sc_proc_start_task, 0);
 	mtx_unlock(&sc->sc_mutex);
 }
 
@@ -917,15 +911,14 @@ umb_start(if_t ifp)
 }
 
 static void
-umb_start_task(struct usb_proc_msg *msg)
+umb_start_task(void *ctx)
 {
-	struct umb_task *task = (struct umb_task *)msg;
-	struct umb_softc *sc = task->sc;
+	struct umb_softc *sc = ctx;
 	if_t ifp = GET_IFP(sc);
 
 	DPRINTF("%s()\n", __func__);
 
-	mtx_assert(&sc->sc_mutex, MA_OWNED);
+	mtx_lock(&sc->sc_mutex);
 
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 
@@ -933,6 +926,7 @@ umb_start_task(struct usb_proc_msg *msg)
 	usbd_transfer_start(sc->sc_xfer[UMB_INTR_RX]);
 
 	umb_open(sc);
+	mtx_unlock(&sc->sc_mutex);
 }
 
 #if 0
@@ -964,9 +958,7 @@ umb_statechg_timeout(void *arg)
 			log(LOG_DEBUG, "%s: state change timeout\n",
 					DEVNAM(sc));
 
-	umb_add_task(sc, umb_state_task,
-			&sc->sc_proc_state_task[0].hdr,
-			&sc->sc_proc_state_task[1].hdr, 0);
+	umb_add_task(sc, &sc->sc_proc_state_task, 0);
 }
 
 static int
@@ -992,24 +984,19 @@ umb_mediastatus(if_t  ifp, struct ifmediareq * imr)
 }
 
 static void
-umb_add_task(struct umb_softc *sc, usb_proc_callback_t callback,
-		struct usb_proc_msg *t0, struct usb_proc_msg *t1, int sync)
+umb_add_task(struct umb_softc *sc, struct usb_proc_msg *msg, int sync)
 {
-	struct umb_task * task;
-
 	mtx_assert(&sc->sc_mutex, MA_OWNED);
-
 	if (usb_proc_is_gone(&sc->sc_taskqueue)) {
 		return;
 	}
 
-	task = usb_proc_msignal(&sc->sc_taskqueue, t0, t1);
-
-	task->hdr.pm_callback = callback;
-	task->sc = sc;
+	usb_proc_msignal(&sc->sc_taskqueue, msg);
 
 	if (sync) {
-		usb_proc_mwait(&sc->sc_taskqueue, t0, t1);
+		mtx_unlock(&sc->sc_mutex);
+		usb_proc_mwait(&sc->sc_taskqueue, msg);
+		mtx_lock(&sc->sc_mutex);
 	}
 }
 
@@ -1018,6 +1005,7 @@ umb_newstate(struct umb_softc *sc, enum umb_state newstate, int flags)
 {
 	if_t ifp = GET_IFP(sc);
 
+	mtx_assert(&sc->sc_mutex, MA_OWNED);
 	if (newstate == sc->sc_state)
 		return;
 	if (((flags & UMB_NS_DONT_DROP) && newstate < sc->sc_state) ||
@@ -1028,28 +1016,27 @@ umb_newstate(struct umb_softc *sc, enum umb_state newstate, int flags)
 		    DEVNAM(sc), newstate > sc->sc_state ? "up" : "down",
 		    umb_istate(sc->sc_state), umb_istate(newstate));
 	sc->sc_state = newstate;
-	umb_add_task(sc, umb_state_task,
-			&sc->sc_proc_state_task[0].hdr,
-			&sc->sc_proc_state_task[1].hdr, 0);
+	umb_add_task(sc, &sc->sc_proc_state_task, 0);
 }
 
 static void
-umb_state_task(struct usb_proc_msg *msg)
+umb_state_task(void *ctx)
 {
-	struct umb_task *task = (struct umb_task *)msg;
-	struct umb_softc *sc = task->sc;
+	struct umb_softc *sc = ctx;
 	if_t ifp = GET_IFP(sc);
 	struct ifreq ifr;
 	int	 state;
 
 	DPRINTF("%s()\n", __func__);
 
+	mtx_lock(&sc->sc_mutex);
 	if (sc->sc_info.regstate == MBIM_REGSTATE_ROAMING && !sc->sc_roaming) {
 		/*
 		 * Query the registration state until we're with the home
 		 * network again.
 		 */
 		umb_cmd(sc, MBIM_CID_REGISTER_STATE, MBIM_CMDOP_QRY, NULL, 0);
+		mtx_unlock(&sc->sc_mutex);
 		return;
 	}
 
@@ -1087,6 +1074,7 @@ umb_state_task(struct usb_proc_msg *msg)
 		}
 		if_link_state_change(ifp, state);
 	}
+	mtx_unlock(&sc->sc_mutex);
 }
 
 static void
@@ -1197,13 +1185,13 @@ umb_down(struct umb_softc *sc, int force)
 }
 
 static void
-umb_get_response_task(struct usb_proc_msg *msg)
+umb_get_response_task(void *ctx)
 {
-	struct umb_task *task = (struct umb_task *)msg;
-	struct umb_softc *sc = task->sc;
+	struct umb_softc *sc = ctx;
 	int	 len;
 
 	DPRINTF("%s()\n", __func__);
+	mtx_lock(&sc->sc_mutex);
 	/*
 	 * Function is required to send on RESPONSE_AVAILABLE notification for
 	 * each encapsulated response that is to be processed by the host.
@@ -1216,6 +1204,7 @@ umb_get_response_task(struct usb_proc_msg *msg)
 		if (umb_get_encap_response(sc, sc->sc_resp_buf, &len))
 			umb_decode_response(sc, sc->sc_resp_buf, len);
 	}
+	mtx_unlock(&sc->sc_mutex);
 }
 
 static void
@@ -1550,6 +1539,8 @@ umb_decode_pin(struct umb_softc *sc, void *data, int len)
 	if_t ifp = GET_IFP(sc);
 	uint32_t	attempts_left;
 
+	mtx_assert(&sc->sc_mutex, MA_OWNED);
+
 	if (len < sizeof (*pi))
 		return 0;
 
@@ -1587,9 +1578,7 @@ umb_decode_pin(struct umb_softc *sc, void *data, int len)
 	/*
 	 * In case the PIN was set after IFF_UP, retrigger the state machine
 	 */
-	umb_add_task(sc, umb_state_task,
-			&sc->sc_proc_state_task[0].hdr,
-			&sc->sc_proc_state_task[1].hdr, 0);
+	umb_add_task(sc, &sc->sc_proc_state_task, 0);
 	return 1;
 }
 
@@ -2825,10 +2814,7 @@ umb_intr(struct usb_xfer *xfer, usb_error_t status)
 		case UCDC_N_RESPONSE_AVAILABLE:
 			DPRINTFN(2, "umb_intr: response available\n");
 			++sc->sc_nresp;
-			umb_add_task(sc, umb_get_response_task,
-					&sc->sc_proc_get_response_task[0].hdr,
-					&sc->sc_proc_get_response_task[1].hdr,
-					0);
+			umb_add_task(sc, &sc->sc_proc_get_response_task, 0);
 			break;
 		case UCDC_N_CONNECTION_SPEED_CHANGE:
 			DPRINTFN(2, "umb_intr: connection speed changed\n");

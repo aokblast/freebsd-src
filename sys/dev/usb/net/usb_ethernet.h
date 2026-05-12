@@ -66,11 +66,6 @@ struct usb_ether_methods {
 	int			(*ue_attach_post_sub)(struct usb_ether *);
 };
 
-struct usb_ether_cfg_task {
-	struct usb_proc_msg hdr;
-	struct usb_ether *ue;
-};
-
 struct usb_ether {
 	/* NOTE: the "ue_ifp" pointer must be first --hps */
 	if_t			ue_ifp;
@@ -86,11 +81,13 @@ struct usb_ether {
 	struct sysctl_ctx_list	ue_sysctl_ctx;
 	struct mbufq		ue_rxq;
 	struct usb_callout	ue_watchdog;
-	struct usb_ether_cfg_task	ue_sync_task[2];
-	struct usb_ether_cfg_task	ue_media_task[2];
-	struct usb_ether_cfg_task	ue_multi_task[2];
-	struct usb_ether_cfg_task	ue_promisc_task[2];
-	struct usb_ether_cfg_task	ue_tick_task[2];
+	struct usb_proc_msg	ue_sync_task;
+	struct usb_proc_msg	ue_start_msg;
+	struct usb_proc_msg	ue_stop_msg;
+	struct usb_proc_msg	ue_media_task;
+	struct usb_proc_msg	ue_multi_task;
+	struct usb_proc_msg	ue_promisc_task;
+	struct usb_proc_msg	ue_tick_task;
 
 	int			ue_unit;
 

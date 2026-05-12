@@ -117,17 +117,6 @@ struct ucom_callback {
 #define	ULSR_RXRDY	0x01		/* Byte ready in Receive Buffer */
 #define	ULSR_RCV_MASK	0x1f		/* Mask for incoming data or error */
 
-struct ucom_cfg_task {
-	struct usb_proc_msg hdr;
-	struct ucom_softc *sc;
-};
-
-struct ucom_param_task {
-	struct usb_proc_msg hdr;
-	struct ucom_softc *sc;
-	struct termios termios_copy;
-};
-
 struct ucom_super_softc {
 	struct usb_process sc_tq;
 	int sc_unit;
@@ -151,12 +140,13 @@ struct ucom_softc {
 	 * OPEN->CLOSE
 	 * CLOSE->OPEN
 	 */
-	struct ucom_cfg_task	sc_start_task[2];
-	struct ucom_cfg_task	sc_open_task[2];
-	struct ucom_cfg_task	sc_close_task[2];
-	struct ucom_cfg_task	sc_line_state_task[2];
-	struct ucom_cfg_task	sc_status_task[2];
-	struct ucom_param_task	sc_param_task[2];
+	struct termios t;
+	struct usb_proc_msg	sc_start_task;
+	struct usb_proc_msg	sc_open_task;
+	struct usb_proc_msg	sc_close_task;
+	struct usb_proc_msg	sc_line_state_task;
+	struct usb_proc_msg	sc_status_task;
+	struct usb_proc_msg	sc_param_task;
 	/* pulse capturing support, PPS */
 	struct pps_state	sc_pps;
 	/* Used to set "UCOM_FLAG_GP_DATA" flag: */

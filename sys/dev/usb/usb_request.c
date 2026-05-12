@@ -759,6 +759,8 @@ usbd_do_request_proc(struct usb_device *udev, struct usb_process *pproc,
 	len = UGETW(req->wLength);
 
 	/* check if the device is being detached */
+	if (pproc->up_mtx != NULL)
+		USB_MTX_ASSERT(pproc->up_mtx, MA_OWNED);
 	if (usb_proc_is_gone(pproc)) {
 		err = USB_ERR_IOERROR;
 		goto done;
