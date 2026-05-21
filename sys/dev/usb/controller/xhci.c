@@ -1802,13 +1802,19 @@ xhci_setup_normal_trbs(struct usb_page_cache *cache, uint32_t offset,
 
 	do {
 		trb = &td->td_trb[i];
-		usbd_get_page(cache, offset + cur_len, &search);
-		seg_len = search.length;
-		if (cur_len + seg_len > len)
-			seg_len = len - cur_len;
-		if (seg_len > XHCI_TD_PAGE_SIZE)
-			seg_len = XHCI_TD_PAGE_SIZE;
-		cur_len += seg_len;
+		if (len > 0) {
+			usbd_get_page(cache, offset + cur_len, &search);
+			seg_len = search.length;
+			if (cur_len + seg_len > len)
+				seg_len = len - cur_len;
+			if (seg_len > XHCI_TD_PAGE_SIZE)
+				seg_len = XHCI_TD_PAGE_SIZE;
+			cur_len += seg_len;
+		} else {
+			/* Zero-length packet: no data buffer */
+			memset(&search, 0, sizeof(search));
+			seg_len = 0;
+		}
 
 		npkt = howmany(len - cur_len, mps);
 		if (npkt > 31)
@@ -2030,6 +2036,36 @@ xhci_setup_bulk(struct usb_xfer *xfer, struct xhci_td *td)
 		    is_in, step_td, is_last);
 		td_last = td;
 		td = td->obj_next;
+	}
+
+	/*
+	 * If force_short_xfer is set and the last frame length is a non-zero
+	 * multiple of the max packet size, the hardware will not generate a
+	 * short packet naturally, so we must append a zero-length TD.
+	 *
+	 * The ntd allocation formula reserves 2 TDs per frame specifically
+	 * to accommodate this ZLP TD (see xhci_device_generic_setup comment).
+	 *
+	 * The last regular-frame TD was set up with qwTrb0=0 in its link TRB
+	 * (the placeholder that xhci_transfer_insert would normally overwrite
+	 * for the final TD).  Since the ZLP TD is now the true final TD, we
+	 * must patch that link TRB to point to the ZLP TD's physical address
+	 * so the host controller can reach it.  No CHAIN_BIT change is needed:
+	 * a TD boundary (no CHAIN) is already correct between two separate TDs.
+	 */
+	if (xfer->flags.force_short_xfer && xfer->nframes > 0) {
+		uint32_t last_len = xfer->frlengths[xfer->nframes - 1];
+
+		if (last_len > 0 && (last_len % xfer->max_packet_size) == 0) {
+			xhci_setup_normal_trbs(NULL, 0, 0,
+			    xfer->max_packet_size, td, NULL, is_in, false,
+			    true);
+			/* Fix the previous TD's link TRB to point to ZLP TD */
+			td_last->td_trb[td_last->ntrb].qwTrb0 =
+			    htole64(td->td_self);
+			usb_pc_cpu_flush(td_last->page_cache);
+			td_last = td;
+		}
 	}
 	return (td_last);
 }
