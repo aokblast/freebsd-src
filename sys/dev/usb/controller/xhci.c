@@ -2048,10 +2048,10 @@ xhci_setup_bulk(struct usb_xfer *xfer, struct xhci_td *td)
 	 *
 	 * The last regular-frame TD was set up with qwTrb0=0 in its link TRB
 	 * (the placeholder that xhci_transfer_insert would normally overwrite
-	 * for the final TD).  Since the ZLP TD is now the true final TD, we
-	 * must patch that link TRB to point to the ZLP TD's physical address
-	 * so the host controller can reach it.  No CHAIN_BIT change is needed:
-	 * a TD boundary (no CHAIN) is already correct between two separate TDs.
+	 * for the final TD).  Since the ZLP TD is now the true final TD, that
+	 * link TRB must be patched: qwTrb0 must point to the ZLP TD, and
+	 * CHAIN_BIT must be set.  Some xHCI controllers refuse to send a ZLP
+	 * if the preceding link TRB does not have CHAIN_BIT set.
 	 */
 	if (xfer->flags.force_short_xfer && xfer->nframes > 0) {
 		uint32_t last_len = xfer->frlengths[xfer->nframes - 1];
@@ -2060,9 +2060,18 @@ xhci_setup_bulk(struct usb_xfer *xfer, struct xhci_td *td)
 			xhci_setup_normal_trbs(NULL, 0, 0,
 			    xfer->max_packet_size, td, NULL, is_in, false,
 			    true);
-			/* Fix the previous TD's link TRB to point to ZLP TD */
+			/*
+			 * Fix the previous TD's link TRB: point to the ZLP TD
+			 * and set CHAIN_BIT.  The address fix is necessary
+			 * because xhci_transfer_insert only patches td_last's
+			 * link TRB.  The CHAIN_BIT is required because some
+			 * xHCI controllers will not emit a ZLP unless the
+			 * preceding link TRB has CHAIN_BIT set.
+			 */
 			td_last->td_trb[td_last->ntrb].qwTrb0 =
 			    htole64(td->td_self);
+			td_last->td_trb[td_last->ntrb].dwTrb3 |= htole32(
+			    XHCI_TRB_3_CHAIN_BIT);
 			usb_pc_cpu_flush(td_last->page_cache);
 			td_last = td;
 		}
