@@ -617,11 +617,35 @@ repeat:
 
 	/* first clear the port connection change bit */
 
-	err = usbd_req_clear_port_feature(udev, NULL,
-	    portno, UHF_C_PORT_CONNECTION);
+	/*
+	 * Before clearing, peek at the real hardware port status.  On the
+	 * first explore pass uhub_explore() synthetically OR's in
+	 * UPS_C_CONNECT_STATUS to force an initial device scan, but the hub
+	 * hardware may not have this change bit set.  Enhanced SuperSpeed
+	 * (USB 3.1+) hubs may STALL CLEAR_PORT_FEATURE(C_PORT_CONNECTION)
+	 * when the bit is absent.  Skip the clear when the hub reports the
+	 * bit as unset; for SS hubs treat a STALL as non-fatal so enumeration
+	 * can still proceed even if the firmware is non-compliant.
+	 */
+	{
+		struct usb_port_status ps_peek;
+		usb_error_t perr;
 
-	if (err)
-		goto error;
+		perr = usbd_req_get_port_status(udev, NULL, &ps_peek, portno);
+		if (perr != 0 ||
+		    (UGETW(ps_peek.wPortChange) & UPS_C_CONNECT_STATUS) != 0) {
+			err = usbd_req_clear_port_feature(udev, NULL,
+			    portno, UHF_C_PORT_CONNECTION);
+			if (err != 0) {
+				if (udev->speed != USB_SPEED_SUPER)
+					goto error;
+				DPRINTFN(1, "port %d: ignoring CLEAR "
+				    "C_PORT_CONNECTION failure on SS hub: %s\n",
+				    portno, usbd_errstr(err));
+				err = 0;
+			}
+		}
+	}
 
 	/* check if there is a child */
 
