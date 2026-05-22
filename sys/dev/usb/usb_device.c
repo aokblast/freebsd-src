@@ -524,7 +524,7 @@ usb_init_endpoint(struct usb_device *udev, uint8_t iface_index,
 		return;
 
 	/* check for SUPER-speed streams mode endpoint */
-	if (udev->speed == USB_SPEED_SUPER && ecomp != NULL &&
+	if (udev->speed >= USB_SPEED_SUPER && ecomp != NULL &&
 	    (edesc->bmAttributes & UE_XFERTYPE) == UE_BULK &&
 	    (UE_GET_BULK_STREAMS(ecomp->bmAttributes) != 0)) {
 		usbd_set_endpoint_mode(udev, ep, USB_EP_MODE_STREAMS);
@@ -1856,15 +1856,17 @@ usb_alloc_device(device_t parent_dev, struct usb_bus *bus,
 	adev = udev;
 	hub = udev->parent_hub;
 
-	while (hub) {
-		if (hub->speed == USB_SPEED_HIGH) {
-			udev->hs_hub_addr = hub->address;
-			udev->parent_hs_hub = hub;
-			udev->hs_port_no = adev->port_no;
-			break;
+	if (udev->speed != USB_SPEED_HIGH) {
+		while (hub) {
+			if (hub->speed > udev->speed) {
+				udev->hs_hub_addr = hub->address;
+				udev->parent_hs_hub = hub;
+				udev->hs_port_no = adev->port_no;
+				break;
+			}
+			adev = hub;
+			hub = hub->parent_hub;
 		}
-		adev = hub;
-		hub = hub->parent_hub;
 	}
 
 	/* init the default endpoint */

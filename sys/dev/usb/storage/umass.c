@@ -2409,6 +2409,13 @@ umass_cam_action(struct cam_sim *sim, union ccb *ccb)
 					    UMASS_FLOPPY_TRANSFER_SPEED;
 				} else {
 					switch (usbd_get_speed(sc->sc_udev)) {
+					case USB_SPEED_SUPER_PLUS_GEN2_X2:
+					case USB_SPEED_SUPER_PLUS_X2:
+					case USB_SPEED_SUPER_PLUS:
+						cpi->base_transfer_speed =
+						    1000000;
+						cpi->maxio = maxphys;
+						break;
 					case USB_SPEED_SUPER:
 						cpi->base_transfer_speed =
 						    UMASS_SUPER_TRANSFER_SPEED;
