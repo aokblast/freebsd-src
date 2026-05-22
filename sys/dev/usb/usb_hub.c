@@ -1346,6 +1346,40 @@ uhub_attach(device_t dev)
 				goto error;
 			}
 		}
+		/*
+		 * For USB 3.1+ Enhanced SuperSpeed hubs, also fetch the
+		 * SuperSpeedPlus Hub Descriptor (type 0x2B).  Its
+		 * wHubCharacteristics power bits carry different semantics
+		 * from the SS descriptor (0x2A):
+		 *   0x2A: 00b=ganged, 01b=individual, 1Xb=no switching
+		 *   0x2B: 00b=always-on (no switching), 01b=individual
+		 * Translate the 0x2B power bits into 0x2A representation so
+		 * that the power-on loop below works uniformly for both types.
+		 */
+		if (UGETW(udev->ddesc.bcdUSB) >= 0x0310) {
+			struct usb_hub_ss_descriptor hubdesc_ssp;
+			usb_error_t ssperr;
+
+			ssperr = usbd_req_get_ssp_hub_descriptor(udev, NULL,
+			    &hubdesc_ssp, 1);
+			if (ssperr == 0) {
+				uint16_t ssp_char = UGETW(
+				    hubdesc_ssp.wHubCharacteristics);
+				uint16_t ss_char = UGETW(
+				    hubdesc30.wHubCharacteristics);
+
+				ss_char &= ~UHD_PWR;
+				if ((ssp_char & UHD_PWR) == UHD_PWR_INDIVIDUAL)
+					ss_char |= UHD_PWR_INDIVIDUAL;
+				else
+					ss_char |= UHD_PWR_NO_SWITCH;
+				USETW(hubdesc30.wHubCharacteristics, ss_char);
+				DPRINTFN(2,
+				    "SSP hub: normalized "
+				    "wHubCharacteristics to 0x%04x\n",
+				    ss_char);
+			}
+		}
 		break;
 	default:
 		DPRINTF("Assuming HUB has only one port\n");
@@ -1453,13 +1487,12 @@ uhub_attach(device_t dev)
 	 *        proceed with device attachment
 	 */
 
-	/* XXX should check for none, individual, or ganged power? */
-
 	removable = 0;
 
 	for (x = 0; x != nports; x++) {
 		/* set up data structures */
 		struct usb_port *up = hub->ports + x;
+		usb_error_t perr;
 
 		up->device_index = 0;
 		up->restartcnt = 0;
@@ -1482,28 +1515,59 @@ uhub_attach(device_t dev)
 			removable++;
 			break;
 		}
+		perr = 0;
 		if (err == 0) {
+			/*
+			 * SuperSpeed hubs with no port power switching
+			 * (wHubCharacteristics bits [1:0] = 1Xb, i.e.
+			 * UHD_PWR_NO_SWITCH) have always-powered ports.
+			 * Per USB 3.x spec Table 10-3, such hubs SHALL
+			 * STALL SET/CLEARPORTFEATURE(PORT_POWER), so skip
+			 * it.  Ganged (00b) and individual (01b) hubs do
+			 * support the feature and must receive it.
+			 */
+			if (udev->speed == USB_SPEED_SUPER &&
+			    (UGETW(hubdesc30.wHubCharacteristics) &
+			    UHD_PWR_NO_SWITCH) != 0) {
+				DPRINTFN(2,
+				    "Port %d is always powered "
+				    "(no switching)\n",
+				    portno);
 #if USB_HAVE_DISABLE_ENUM
-			/* check if we should disable USB port power or not */
-			if (usb_disable_port_power != 0 ||
+			} else if (usb_disable_port_power != 0 ||
 			    sc->sc_disable_port_power != 0) {
 				/* turn the power off */
 				DPRINTFN(2, "Turning port %d power off\n", portno);
-				err = usbd_req_clear_port_feature(udev, NULL,
+				perr = usbd_req_clear_port_feature(udev, NULL,
 				    portno, UHF_PORT_POWER);
-			} else {
 #endif
+			} else {
 				/* turn the power on */
 				DPRINTFN(2, "Turning port %d power on\n", portno);
-				err = usbd_req_set_port_feature(udev, NULL,
+				perr = usbd_req_set_port_feature(udev, NULL,
 				    portno, UHF_PORT_POWER);
-#if USB_HAVE_DISABLE_ENUM
 			}
-#endif
 		}
-		if (err != 0) {
+		/*
+		 * Some SuperSpeed hubs (including Enhanced SuperSpeed hubs
+		 * that report ganged power mode via the 0x2A descriptor but
+		 * use always-on ports) stall SET/CLEARPORTFEATURE(PORT_POWER).
+		 * Verify whether the port is already powered before treating
+		 * the failure as a real error.
+		 */
+		if (perr != 0 && udev->speed == USB_SPEED_SUPER) {
+			struct usb_port_status ps;
+
+			if (usbd_req_get_port_status(udev, NULL,
+			    &ps, portno) == 0 &&
+			    (UGETW(ps.wPortStatus) & UPS_PORT_POWER_SS) != 0) {
+				DPRINTFN(2, "port %d already powered\n", portno);
+				perr = 0;
+			}
+		}
+		if (perr != 0) {
 			DPRINTFN(0, "port %d power on or off failed, %s\n",
-			    portno, usbd_errstr(err));
+			    portno, usbd_errstr(perr));
 		}
 		DPRINTF("turn on port %d power\n",
 		    portno);

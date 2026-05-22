@@ -214,6 +214,7 @@ typedef struct usb_device_request usb_device_request_t;
 #define	UDESC_CS_ENDPOINT	0x25
 #define	UDESC_HUB		0x29
 #define	UDESC_SS_HUB		0x2A	/* super speed */
+#define UDESC_SSP_HUB			0x2B /* super speed plus (USB 3.1+) */
 #define	UDESC_ENDPOINT_SS_COMP	0x30	/* super speed */
 #define	UR_SET_DESCRIPTOR	0x07
 #define	UR_GET_CONFIG		0x08

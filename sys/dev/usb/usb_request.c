@@ -1536,6 +1536,34 @@ usbd_req_get_ss_hub_descriptor(struct usb_device *udev, struct mtx *mtx,
 }
 
 /*------------------------------------------------------------------------*
+ *	usbd_req_get_ssp_hub_descriptor
+ *
+ *	Fetch the SuperSpeedPlus Hub Descriptor (type 0x2B, USB 3.1+).
+ *	The struct layout is identical to usb_hub_ss_descriptor but
+ *	wHubCharacteristics bits [1:0] carry different semantics:
+ *	  00b = all ports always powered (no switching)
+ *	  01b = individual port power switching
+ *
+ * Returns:
+ *    0: Success
+ * Else: Failure
+ *------------------------------------------------------------------------*/
+usb_error_t
+usbd_req_get_ssp_hub_descriptor(struct usb_device *udev, struct mtx *mtx,
+    struct usb_hub_ss_descriptor *hd, uint8_t nports)
+{
+	struct usb_device_request req;
+	uint16_t len = sizeof(*hd) - 32 + 1 + ((nports + 7) / 8);
+
+	req.bmRequestType = UT_READ_CLASS_DEVICE;
+	req.bRequest = UR_GET_DESCRIPTOR;
+	USETW2(req.wValue, UDESC_SSP_HUB, 0);
+	USETW(req.wIndex, 0);
+	USETW(req.wLength, len);
+	return (usbd_do_request(udev, mtx, &req, hd));
+}
+
+/*------------------------------------------------------------------------*
  *	usbd_req_get_hub_status
  *
  * Returns:
