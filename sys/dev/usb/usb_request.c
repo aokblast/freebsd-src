@@ -1536,6 +1536,74 @@ usbd_req_get_ss_hub_descriptor(struct usb_device *udev, struct mtx *mtx,
 }
 
 /*------------------------------------------------------------------------*
+ *	usbd_req_get_bos_descriptor
+ *
+ * Returns:
+ *    0: Success
+ * Else: Failure
+ *------------------------------------------------------------------------*/
+usb_error_t
+usbd_req_get_bos_descriptor(struct usb_device *udev, struct mtx *mtx,
+    struct usb_bos_descriptor *bd, int len)
+{
+	struct usb_device_request req;
+
+	req.bmRequestType = UT_READ_DEVICE;
+	req.bRequest = UR_GET_DESCRIPTOR;
+	USETW2(req.wValue, UDESC_BOS, 0);
+	USETW(req.wIndex, 0);
+	USETW(req.wLength, len);
+
+	return (usbd_do_request_flags(udev, mtx, &req, bd, USB_SHORT_XFER_OK,
+	    NULL, USB_DEFAULT_TIMEOUT));
+}
+
+/*------------------------------------------------------------------------*
+ *	usbd_req_get_bos_descriptor_full
+ *
+ * Returns:
+ *    0: Success
+ * Else: Failure
+ *------------------------------------------------------------------------*/
+usb_error_t
+usbd_req_get_bos_descriptor_full(struct usb_device *udev, struct mtx *mtx,
+    struct usb_bos_descriptor **bdp, int *len)
+{
+	struct usb_bos_descriptor *bdesc;
+	uint32_t desc_len;
+	int err;
+
+	*bdp = NULL;
+	*len = 0;
+
+	bdesc = malloc(sizeof(struct usb_bos_descriptor), M_USBDEV, M_WAITOK);
+	err = usbd_req_get_bos_descriptor(udev, mtx, bdesc, sizeof(*bdesc));
+	if (err) {
+		free(bdesc, M_USBDEV);
+		return (err);
+	}
+	desc_len = UGETW(bdesc->wTotalLength);
+	free(bdesc, M_USBDEV);
+
+	if (desc_len < sizeof(struct usb_bos_descriptor) ||
+	    desc_len > USB_BOS_DESC_MAX_LEN) {
+		DPRINTFN(0, "BOS descriptor wTotalLength %u is invalid\n",
+		    desc_len);
+		return (USB_ERR_INVAL);
+	}
+
+	bdesc = malloc(desc_len, M_USBDEV, M_WAITOK);
+	err = usbd_req_get_bos_descriptor(udev, mtx, bdesc, desc_len);
+	if (err) {
+		free(bdesc, M_USBDEV);
+		return (err);
+	}
+	*bdp = bdesc;
+	*len = desc_len;
+	return (0);
+}
+
+/*------------------------------------------------------------------------*
  *	usbd_req_get_hub_status
  *
  * Returns:
