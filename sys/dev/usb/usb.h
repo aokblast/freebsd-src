@@ -693,6 +693,15 @@ struct usb_status {
 } __packed;
 typedef struct usb_status usb_status_t;
 
+struct usb_ext_status {
+	uDWord	wStatus;
+#define UDS_RX_SUBLINK_SPEED_ID_BITS(x)  (x & 0xF)
+#define UDS_TX_SUBLINK_SPEED_ID_BITS(x)  ((x >> 4) & 0xF)
+#define UDS_RX_SUBLINK_LANE_COUNT_BITS(x)  ((x >> 8) & 0xF)
+#define UDS_TX_SUBLINK_LANE_COUNT_BITS(x)  ((x >> 12) & 0xF)
+} __packed;
+typedef struct usb_ext_status usb_ext_status_t;
+
 struct usb_hub_status {
 	uWord	wHubStatus;
 #define	UHS_LOCAL_POWER			0x0001
