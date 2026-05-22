@@ -315,3 +315,27 @@ usbd_get_no_alts(struct usb_config_descriptor *cd,
 	}
 	return (n);
 }
+
+struct usb_bos_cap_descriptor *
+usbd_bos_foreach(struct usb_bos_descriptor *bos,
+    struct usb_bos_cap_descriptor *cap)
+{
+	/*
+	 * No capabilility
+	 */
+	if (bos == NULL || (bos->bLength >= UGETW(bos->wTotalLength)))
+		return (NULL);
+
+	if (cap == NULL)
+		return (struct usb_bos_cap_descriptor *)((uint8_t *)bos +
+		    bos->bLength);
+
+	if (cap->bLength < sizeof(*cap))
+		return (NULL);
+
+	if (UGETW(bos->wTotalLength) <=
+	    (uint8_t *)cap - (uint8_t *)bos + cap->bLength)
+		return (NULL);
+
+	return (struct usb_bos_cap_descriptor *)((uint8_t *)cap + cap->bLength);
+}
