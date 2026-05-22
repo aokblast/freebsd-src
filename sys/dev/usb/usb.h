@@ -331,6 +331,7 @@ struct usb_bos_cap_descriptor {
 #define	USB_DEVCAP_USB2EXT	0x02
 #define	USB_DEVCAP_SUPER_SPEED	0x03
 #define	USB_DEVCAP_CONTAINER_ID	0x04
+#define	USB_DEVCAP_SUPERSPEED_PLUS	0x0A
 	/* data ... */
 } __packed;
 typedef struct usb_bos_cap_descriptor usb_bos_cap_descriptor_t;
@@ -370,6 +371,49 @@ struct usb_devcap_container_id_descriptor {
 } __packed;
 typedef struct usb_devcap_container_id_descriptor
 		usb_devcap_container_id_descriptor_t;
+
+struct usb_devcap_ss_plus_descriptor_header {
+	uByte	bLength;
+	uByte	bDescriptorType;
+	uByte	bDevCapabilityType;
+	uByte	bReserved;
+	uDWord	bmAttributes;
+	uWord	wFunctionalitySupport;
+	uWord   wReserved;
+} __packed;
+
+struct usb_devcap_ss_plus_descriptor {
+	uByte	bLength;
+	uByte	bDescriptorType;
+	uByte	bDevCapabilityType;
+	uByte	bReserved;
+#define USB_DEVCAP_SSPLUS_SSAC_GET(x) (x & 0x0F)
+#define USB_DEVCAP_SSPLUS_SSAC_SET(v) (v & 0x0F)
+#define USB_DEVCAP_SSPLUS_SSIC_GET(x) ((x >> 4) & 0x0F)
+#define USB_DEVCAP_SSPLUS_SSIC_SET(v) ((v & 0x0F) << 4)
+	uDWord	bmAttributes;
+#define USB_DEVCAP_SSPLUS_MIN_SSID_GET(x) (x & 0x0F)
+#define USB_DEVCAP_SSPLUS_MIN_SSID_SET(v) (v & 0x0F)
+#define USB_DEVCAP_SSPLUS_MIN_RXLINK_GET(x) ((x >> 8) & 0x0F)
+#define USB_DEVCAP_SSPLUS_MIN_RXLINK_SET(v) ((v & 0x0F) << 8)
+#define USB_DEVCAP_SSPLUS_MIN_TXLINK_GET(x) ((x >> 12) & 0x0F)
+#define USB_DEVCAP_SSPLUS_MIN_TXLINK_SET(v) ((v & 0x0F) << 12)
+	uWord	wFunctionalitySupport;
+	uWord   wReserved;
+#define USB_DEVCAP_SSPLUS_SSID_GET(x) (x & 0x0F)
+#define USB_DEVCAP_SSPLUS_SSID_SET(v) (v & 0x0F)
+#define USB_DEVCAP_SSPLUS_LSE_GET(x) ((x >> 4) & 0x03)
+#define USB_DEVCAP_SSPLUS_LSE_SET(v) ((v & 0x03) << 4)
+#define USB_DEVCAP_SSPLUS_ST_GET(x) ((x >> 6) & 0x03)
+#define USB_DEVCAP_SSPLUS_ST_SET(v) ((v & 0x03) << 6)
+#define USB_DEVCAP_SSPLUS_LP_GET(x) ((x >> 14) & 0x01)
+#define USB_DEVCAP_SSPLUS_LP_SET(v) ((v & 0x01) << 14)
+#define USB_DEVCAP_SSPLUS_LSM_GET(x)  ((x >> 16) & 0xFFFF)
+#define USB_DEVCAP_SSPLUS_LSM_SET(v)  ((v & 0xFFFF) << 16)
+	uDWord   bmSublinkSpeedAttr[];
+} __packed;
+typedef struct usb_devcap_ss_plus_descriptor
+		usb_devcap_ss_plus_descriptor_t;
 
 /* Device class codes */
 #define	UDCLASS_IN_INTERFACE	0x00
