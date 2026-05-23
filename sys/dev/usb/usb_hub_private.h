@@ -46,6 +46,7 @@ enum {
 struct uhub_current_state {
 	uint16_t port_change;
 	uint16_t port_status;
+	uint16_t ext_speed;
 };
 
 struct uhub_softc {
@@ -65,6 +66,7 @@ struct uhub_softc {
 #define	UHUB_USB_PORT_ERRORS_MAX 4
 	uint8_t	sc_flags;
 #define	UHUB_FLAG_DID_EXPLORE 0x01
+	struct usb_hub_ss_sublinks sc_slinks;
 };
 struct hub_result {
 	struct usb_device *udev;

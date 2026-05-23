@@ -588,6 +588,80 @@ uhub_read_port_status(struct uhub_softc *sc, uint8_t portno)
 	return (err);
 }
 
+static enum usb_dev_speed
+usb_hub_sublink_status_to_speed(struct usb_hub_ss_sublinks *links, int id)
+{
+	/* rx + tx per id */
+	if (id > (links->num_ids * 2))
+		return (USB_SPEED_VARIABLE);
+
+	DPRINTFN(4, "exp: %d, val: %d\n", links->hub_status[id].exp,
+	    links->hub_status[id].val);
+
+	switch (links->hub_status[id].exp) {
+	case 0:
+	case 1:
+		return (USB_SPEED_LOW);
+	case 2:
+		return (links->hub_status[id].val >= 480 ? USB_SPEED_HIGH :
+							   USB_SPEED_FULL);
+	case 3:
+		if (links->hub_status[id].val <= 5 ||
+		    links->hub_status[id].lp == 0)
+			return (USB_SPEED_SUPER);
+		if (links->hub_status[id].val <= 10)
+			return (USB_SPEED_SUPER_PLUS);
+		return (USB_SPEED_SUPER_PLUS_X2);
+	}
+
+	return (USB_SPEED_VARIABLE);
+}
+static usb_error_t
+uhub_read_ext_port_status(struct uhub_softc *sc, uint8_t portno)
+{
+	struct usb_ext_status ps;
+	usb_error_t err;
+	uint32_t rx_id, tx_id;
+
+	if (sc->sc_usb_port_errors >= UHUB_USB_PORT_ERRORS_MAX) {
+		DPRINTFN(4, "port %d, HUB looks dead, too many errors\n",
+		    portno);
+		sc->sc_st.ext_speed = USB_SPEED_VARIABLE;
+		return (USB_ERR_TIMEOUT);
+	}
+
+	err = usbd_req_get_ext_port_status(sc->sc_udev, NULL, &ps, portno);
+
+	if (err == 0) {
+		rx_id = UDS_RX_SUBLINK_SPEED_ID_BITS(UGETW(ps.wStatus));
+		tx_id = UDS_TX_SUBLINK_SPEED_ID_BITS(UGETW(ps.wStatus));
+		DPRINTFN(4, "rx_id: %d tx_id: %d\n", rx_id, tx_id);
+		sc->sc_st.ext_speed = MIN(
+		    usb_hub_sublink_status_to_speed(&sc->sc_slinks, rx_id * 2),
+		    usb_hub_sublink_status_to_speed(&sc->sc_slinks,
+			(tx_id * 2) + 1));
+
+		if (UDS_RX_SUBLINK_LANE_COUNT_BITS(UGETW(ps.wStatus)) ||
+		    UDS_TX_SUBLINK_LANE_COUNT_BITS(UGETW(ps.wStatus))) {
+			/*
+			 * Multi-lane link: use LP of the Rx sublink to
+			 * distinguish Gen1x2 (LP=0, 10G) from Gen2x2 (LP=1, 20G).
+			 */
+			if (sc->sc_slinks.hub_status[rx_id * 2].lp == 0)
+				sc->sc_st.ext_speed = USB_SPEED_SUPER_PLUS_X2;
+			else
+				sc->sc_st.ext_speed = USB_SPEED_SUPER_PLUS_GEN2_X2;
+		}
+	} else {
+		sc->sc_st.ext_speed = 0;
+		sc->sc_usb_port_errors++;
+	}
+
+	/* debugging print */
+	DPRINTFN(4, "port %d, ext_speed=0x%04x\n", portno, sc->sc_st.ext_speed);
+	return (err);
+}
+
 /*------------------------------------------------------------------------*
  *	uhub_reattach_port
  *
@@ -660,6 +734,9 @@ repeat:
 		power_mask = UPS_PORT_POWER;
 		break;
 	case USB_SPEED_SUPER:
+	case USB_SPEED_SUPER_PLUS:
+	case USB_SPEED_SUPER_PLUS_X2:
+	case USB_SPEED_SUPER_PLUS_GEN2_X2:
 		if (udev->parent_hub == NULL)
 			power_mask = 0;	/* XXX undefined */
 		else
@@ -753,9 +830,24 @@ repeat:
 	case USB_SPEED_LOW:
 		speed = USB_SPEED_LOW;
 		break;
+	case USB_SPEED_SUPER_PLUS:
+	case USB_SPEED_SUPER_PLUS_X2:
+	case USB_SPEED_SUPER_PLUS_GEN2_X2:
+		err = uhub_read_ext_port_status(sc, portno);
+		if (!err) {
+			speed = sc->sc_st.ext_speed;
+		} else {
+			speed = USB_SPEED_SUPER;
+		}
+		break;
 	case USB_SPEED_SUPER:
+		/*
+		 * Port Speed bits in SuperSpeed Hub is only valid when the hub
+		 * is run uder Enhanced SS speed, which has been handle in the
+		 * USB_SPEED_SUPER_PLUS case. Therefore, a SuperSpeed Hub can
+		 * only attach to a SuperSpeed Device
+		 */
 		if (udev->parent_hub == NULL) {
-			/* Root HUB - special case */
 			switch (sc->sc_st.port_status & UPS_OTHER_SPEED) {
 			case 0:
 				speed = USB_SPEED_FULL;
@@ -779,16 +871,16 @@ repeat:
 		speed = udev->speed;
 		break;
 	}
-	if (speed == USB_SPEED_SUPER) {
-		err = usbd_req_set_hub_u1_timeout(udev, NULL,
-		    portno, 128 - (2 * udev->depth));
+	if (speed >= USB_SPEED_SUPER) {
+		err = usbd_req_set_hub_u1_timeout(udev, NULL, portno,
+		    127 - (2 * udev->depth));
 		if (err) {
 			DPRINTFN(0, "port %d U1 timeout "
 			    "failed, error=%s\n",
 			    portno, usbd_errstr(err));
 		}
-		err = usbd_req_set_hub_u2_timeout(udev, NULL,
-		    portno, 128 - (2 * udev->depth));
+		err = usbd_req_set_hub_u2_timeout(udev, NULL, portno,
+		    127 - (2 * udev->depth));
 		if (err) {
 			DPRINTFN(0, "port %d U2 timeout "
 			    "failed, error=%s\n",
@@ -973,6 +1065,8 @@ uhub_is_too_deep(struct usb_device *udev)
 			return (1);
 		break;
 	case USB_SPEED_SUPER:
+	case USB_SPEED_SUPER_PLUS:
+	case USB_SPEED_SUPER_PLUS_X2:
 		if (udev->depth > USB_SS_HUB_DEPTH_MAX)
 			return (1);
 		break;
@@ -1088,7 +1182,7 @@ uhub_explore(struct usb_device *udev)
 			if (err != USB_ERR_NORMAL_COMPLETION)
 				retval = err;
 		}
-		if (udev->speed == USB_SPEED_SUPER &&
+		if (udev->speed >= USB_SPEED_SUPER &&
 		    (sc->sc_st.port_change & UPS_C_BH_PORT_RESET) != 0) {
 			DPRINTF("Warm reset finished on port %u.\n", portno);
 			err = usbd_req_clear_port_feature(
@@ -1138,6 +1232,75 @@ uhub_probe(device_t dev)
 	return (ENXIO);
 }
 
+static usb_error_t
+uhub_ss_caps_get(struct usb_bos_descriptor *bdesc,
+    struct usb_devcap_ss_plus_descriptor **desc)
+{
+	struct usb_bos_cap_descriptor *cap = NULL;
+
+	*desc = NULL;
+	if (bdesc == NULL)
+		return (USB_ERR_INVAL);
+
+	while ((cap = usbd_bos_foreach(bdesc, cap))) {
+		if (cap->bDescriptorType == UDESC_DEVICE_CAPABILITY &&
+		    cap->bDevCapabilityType == USB_DEVCAP_SUPERSPEED_PLUS) {
+			*desc = (struct usb_devcap_ss_plus_descriptor *)cap;
+			return (0);
+		}
+	}
+	return (USB_ERR_INVAL);
+}
+
+static usb_error_t
+uhub_ss_caps_to_hub_sslink(struct usb_devcap_ss_plus_descriptor *desc,
+    struct usb_hub_ss_sublinks *links)
+{
+	uint32_t attrs = UGETW(desc->bmAttributes);
+	uint32_t n = USB_DEVCAP_SSPLUS_SSAC_GET(attrs) + 1;
+	uint32_t link_val;
+	uint8_t id, st;
+	uint32_t i;
+
+	links->num_ids = USB_DEVCAP_SSPLUS_SSIC_GET(attrs) + 1;
+	if (links->num_ids >= UHUB_SS_SUBLINKS_MAX_IDS) {
+		return (USB_ERR_INVAL);
+	}
+
+	for (i = 0; i < n; ++i) {
+		link_val = UGETDW(desc->bmSublinkSpeedAttr[i]);
+		id = USB_DEVCAP_SSPLUS_SSID_GET(link_val);
+		st = USB_DEVCAP_SSPLUS_ST_GET(link_val);
+
+		/*
+		 * asymmetric link
+		 */
+		if (st & 0x01) {
+			links->hub_status[id * 2 + (st >> 1)].exp =
+			    USB_DEVCAP_SSPLUS_LSE_GET(link_val);
+			links->hub_status[id * 2 + (st >> 1)].lp =
+			    USB_DEVCAP_SSPLUS_LP_GET(link_val);
+			links->hub_status[id * 2 + (st >> 1)].val =
+			    USB_DEVCAP_SSPLUS_LSM_GET(link_val);
+		} else {
+			links->hub_status[id * 2].exp =
+			    USB_DEVCAP_SSPLUS_LSE_GET(link_val);
+			links->hub_status[id * 2].lp = USB_DEVCAP_SSPLUS_LP_GET(
+			    link_val);
+			links->hub_status[id * 2].val =
+			    USB_DEVCAP_SSPLUS_LSM_GET(link_val);
+			links->hub_status[id * 2 + 1].exp =
+			    USB_DEVCAP_SSPLUS_LSE_GET(link_val);
+			links->hub_status[id * 2 + 1].lp =
+			    USB_DEVCAP_SSPLUS_LP_GET(link_val);
+			links->hub_status[id * 2 + 1].val =
+			    USB_DEVCAP_SSPLUS_LSM_GET(link_val);
+		}
+	}
+
+	return (USB_ERR_NORMAL_COMPLETION);
+}
+
 /* NOTE: The information returned by this function can be wrong. */
 usb_error_t
 uhub_query_info(struct usb_device *udev, uint8_t *pnports, uint8_t *ptt)
@@ -1172,7 +1335,9 @@ uhub_query_info(struct usb_device *udev, uint8_t *pnports, uint8_t *ptt)
 		if (udev->speed == USB_SPEED_HIGH)
 			tt = (UGETW(hubdesc20.wHubCharacteristics) >> 5) & 3;
 		break;
-
+	case USB_SPEED_SUPER_PLUS:
+	case USB_SPEED_SUPER_PLUS_X2:
+	case USB_SPEED_SUPER_PLUS_GEN2_X2:
 	case USB_SPEED_SUPER:
 		err = usbd_req_get_ss_hub_descriptor(udev, NULL, &hubdesc30, 1);
 		if (err) {
@@ -1209,6 +1374,9 @@ uhub_attach(device_t dev)
 	struct usb_hub *hub;
 	struct usb_hub_descriptor hubdesc20;
 	struct usb_hub_ss_descriptor hubdesc30;
+	struct usb_bos_descriptor *bdesc;
+	struct usb_devcap_ss_plus_descriptor *dev_desc;
+	uint32_t bdesc_len;
 #if USB_HAVE_DISABLE_ENUM
 	struct sysctl_ctx_list *sysctl_ctx;
 	struct sysctl_oid *sysctl_tree;
@@ -1302,6 +1470,37 @@ uhub_attach(device_t dev)
 			}
 		}
 		break;
+	case USB_SPEED_SUPER_PLUS:
+	case USB_SPEED_SUPER_PLUS_X2:
+	case USB_SPEED_SUPER_PLUS_GEN2_X2:
+		err = usbd_req_get_bos_descriptor_full(udev, NULL, &bdesc,
+		    &bdesc_len);
+		if (err) {
+			DPRINTFN(0,
+			    "Getting USB BOS descriptor failed,"
+			    "error=%s\n",
+			    usbd_errstr(err));
+			goto error;
+		}
+		err = uhub_ss_caps_get(bdesc, &dev_desc);
+		if (err) {
+			DPRINTFN(0,
+			    "Getting USB SS Plus descriptor failed,"
+			    "error=%s\n",
+			    usbd_errstr(err));
+			free(bdesc, M_USBDEV);
+			goto error;
+		}
+		err = uhub_ss_caps_to_hub_sslink(dev_desc, &sc->sc_slinks);
+		if (err) {
+			DPRINTFN(0, "Failed to parse SS Link Descriptor\n");
+			free(bdesc, M_USBDEV);
+			goto error;
+		}
+		free(bdesc, M_USBDEV);
+		/*
+		 * fallthrough
+		 */
 	case USB_SPEED_SUPER:
 		if (udev->parent_hub != NULL) {
 			err = usbd_req_set_hub_depth(udev, NULL,
@@ -1474,6 +1673,9 @@ uhub_attach(device_t dev)
 				removable++;
 			break;
 		case USB_SPEED_SUPER:
+		case USB_SPEED_SUPER_PLUS:
+		case USB_SPEED_SUPER_PLUS_X2:
+		case USB_SPEED_SUPER_PLUS_GEN2_X2:
 			if (!UHD_NOT_REMOV(&hubdesc30, portno))
 				removable++;
 			break;

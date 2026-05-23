@@ -41,6 +41,25 @@ struct usb_port {
 #endif
 };
 
+#define UHUB_SS_SUBLINKS_MAX_IDS 16
+
+/*
+ * The following structure define the usb_sublink_information
+ */
+struct usb_hub_ss_sublinks {
+	uint8_t num_ids;
+
+	struct {
+		uint8_t exp;
+		uint8_t lp;
+		uint16_t val;
+		/*
+		 * Max 4 bit. For each we have 1 rx and 1 tx
+		 * ID starts from 1.
+		 */
+	} hub_status[(UHUB_SS_SUBLINKS_MAX_IDS) * 2];
+};
+
 /*
  * The following structure defines an USB HUB.
  */
