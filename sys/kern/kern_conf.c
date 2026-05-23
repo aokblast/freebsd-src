@@ -257,41 +257,73 @@ dev_relthread(struct cdev *dev, int ref)
 	atomic_subtract_rel_long(&dev->si_threadcount, 1);
 }
 
-int
-nullop(void)
-{
+/* Define a dead_cdevsw for use when devices leave unexpectedly. */
 
-	return (0);
-}
-
-int
-eopnotsupp(void)
-{
-
-	return (EOPNOTSUPP);
-}
 
 static int
-enxio(void)
+dead_open(struct cdev *dev __unused, int oflags __unused, int devtyp __unused,
+    struct thread *td __unused)
 {
 	return (ENXIO);
 }
 
 static int
-enodev(void)
+dead_close(struct cdev *dev __unused, int fflag __unused, int devtype __unused,
+    struct thread *td __unused)
+{
+	return (ENXIO);
+}
+
+static int
+dead_read_overwrite(struct cdev *dev __unused, struct uio *uio __unused,
+    int ioflag __unused)
+{
+	return (ENXIO);
+}
+
+static int
+dead_write_overwrite(struct cdev *dev __unused, struct uio *uio __unused, int ioflag __unused)
+{
+	return (ENXIO);
+}
+
+static int
+dead_ioctl(struct cdev *dev __unused, u_long cmd __unused, caddr_t data __unused,
+    int fflag __unused, struct thread *td __unused)
+{
+	return (ENXIO);
+}
+
+static int
+dead_poll_overwrite(struct cdev *dev __unused, int events __unused, struct thread *td __unused)
 {
 	return (ENODEV);
 }
 
-/* Define a dead_cdevsw for use when devices leave unexpectedly. */
+static int
+dead_mmap(struct cdev *dev __unused, vm_ooffset_t offset __unused, vm_paddr_t *paddr __unused,
+		int nprot __unused, vm_memattr_t *memattr __unused)
+{
+	return (ENODEV);
+}
 
-#define dead_open	(d_open_t *)enxio
-#define dead_close	(d_close_t *)enxio
-#define dead_read	(d_read_t *)enxio
-#define dead_write	(d_write_t *)enxio
-#define dead_ioctl	(d_ioctl_t *)enxio
-#define dead_poll	(d_poll_t *)enodev
-#define dead_mmap	(d_mmap_t *)enodev
+static int
+dead_kqfilter(struct cdev *dev __unused, struct knote *kn __unused)
+{
+	return (ENXIO);
+}
+
+static int
+dead_mmap_single(struct cdev *cdev __unused, vm_ooffset_t *offset __unused,
+    vm_size_t size __unused, struct vm_object **object __unused,
+    int nprot __unused)
+{
+	return (ENODEV);
+}
+
+#define dead_read	dead_read_overwrite
+#define dead_write	dead_write_overwrite
+#define dead_poll	dead_poll_overwrite
 
 static void
 dead_strategy(struct bio *bp)
@@ -299,9 +331,6 @@ dead_strategy(struct bio *bp)
 
 	biofinish(bp, NULL, ENXIO);
 }
-
-#define dead_kqfilter	(d_kqfilter_t *)enxio
-#define dead_mmap_single (d_mmap_single_t *)enodev
 
 static struct cdevsw dead_cdevsw = {
 	.d_version =	D_VERSION,
@@ -320,14 +349,60 @@ static struct cdevsw dead_cdevsw = {
 
 /* Default methods if driver does not specify method */
 
-#define null_open	(d_open_t *)nullop
-#define null_close	(d_close_t *)nullop
-#define no_read		(d_read_t *)enodev
-#define no_write	(d_write_t *)enodev
-#define no_ioctl	(d_ioctl_t *)enodev
-#define no_mmap		(d_mmap_t *)enodev
-#define no_kqfilter	(d_kqfilter_t *)enodev
-#define no_mmap_single	(d_mmap_single_t *)enodev
+static int
+null_open(struct cdev *dev __unused, int oflags __unused, int devtyp __unused,
+    struct thread *td __unused)
+{
+	return (0);
+}
+
+static int
+null_close(struct cdev *dev __unused, int fflag __unused, int devtype __unused,
+    struct thread *td __unused)
+{
+	return (0);
+}
+
+static int
+no_read(struct cdev *dev __unused, struct uio *uio __unused,
+    int ioflag __unused)
+{
+	return (ENODEV);
+}
+
+static int
+no_write(struct cdev *dev __unused, struct uio *uio __unused, int ioflag __unused)
+{
+	return (ENODEV);
+}
+
+static int
+no_ioctl(struct cdev *dev __unused, u_long cmd __unused, caddr_t data __unused,
+    int fflag __unused, struct thread *td __unused)
+{
+	return (ENODEV);
+}
+
+static int
+no_mmap(struct cdev *dev __unused, vm_ooffset_t offset __unused, vm_paddr_t *paddr __unused,
+		int nprot __unused, vm_memattr_t *memattr __unused)
+{
+	return (ENODEV);
+}
+
+static int
+no_kqfilter(struct cdev *dev __unused, struct knote *kn __unused)
+{
+	return (ENODEV);
+}
+
+static int
+no_mmap_single(struct cdev *cdev __unused, vm_ooffset_t *offset __unused,
+    vm_size_t size __unused, struct vm_object **object __unused,
+    int nprot __unused)
+{
+	return (ENODEV);
+}
 
 static void
 no_strategy(struct bio *bp)
