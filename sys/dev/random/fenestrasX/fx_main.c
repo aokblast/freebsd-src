@@ -253,6 +253,9 @@ have_valid_rng:
 }
 
 static void
+fxrng_alg_pre_read(void) {}
+
+static void
 fxrng_alg_read(uint8_t *output, size_t nbytes)
 {
 	_fxrng_alg_read(output, nbytes, NULL);
@@ -286,7 +289,7 @@ SYSINIT(random_alg, SI_SUB_RANDOM, SI_ORDER_SECOND, fxrng_init_alg, NULL);
  */
 const struct random_algorithm random_alg_context = {
 	.ra_ident = "fenestrasX",
-	.ra_pre_read = (void (*)(void))nullop,
+	.ra_pre_read = fxrng_alg_pre_read,
 	.ra_read = fxrng_alg_read,
 	.ra_seeded = fxrng_alg_seeded,
 	.ra_event_processor = fxrng_event_processor,
