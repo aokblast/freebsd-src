@@ -41,6 +41,24 @@ struct usb_port {
 #endif
 };
 
+#define UHUB_SS_SUBLINKS_MAX_IDS 16
+
+/*
+ * The following structure define the usb_sublink_information
+ */
+struct usb_hub_ss_sublinks {
+	struct {
+		uint8_t exp;
+		uint8_t lp;
+		uint16_t val;
+		/*
+		 * Max 4 bit. For each we have 1 rx and 1 tx.
+		 * IDs may be sparse; val is zero if not advertised.
+		 * val is the speed of one lane, not of the link.
+		 */
+	} hub_status[(UHUB_SS_SUBLINKS_MAX_IDS) * 2];
+};
+
 /*
  * The following structure defines an USB HUB.
  */
@@ -77,5 +95,7 @@ void	usb_bus_powerd(struct usb_bus *bus);
 void	uhub_root_intr(struct usb_bus *, const uint8_t *, uint8_t);
 usb_error_t uhub_query_info(struct usb_device *, uint8_t *, uint8_t *);
 void	uhub_explore_handle_re_enumerate(struct usb_device *);
+enum usb_dev_speed uhub_get_ext_port_speed(struct usb_device *, struct mtx *,
+	    uint8_t);
 
 #endif					/* _USB_HUB_H_ */

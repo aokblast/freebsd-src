@@ -68,6 +68,7 @@
 
 #include <dev/usb/usb_controller.h>
 #include <dev/usb/usb_bus.h>
+#include <dev/usb/usb_hub.h>
 #include <sys/ctype.h>
 #endif			/* USB_GLOBAL_INCLUDE_FILE */
 
@@ -2151,6 +2152,7 @@ usbd_setup_device_desc(struct usb_device *udev, struct mtx *mtx)
 usb_error_t
 usbd_req_re_enumerate(struct usb_device *udev, struct mtx *mtx)
 {
+	enum usb_dev_speed speed;
 	struct usb_device *parent_hub;
 	usb_error_t err;
 	uint8_t old_addr;
@@ -2200,6 +2202,14 @@ retry:
 		DPRINTFN(0, "addr=%d, port reset failed, %s\n", 
 		    old_addr, usbd_errstr(err));
 		goto done;
+	}
+
+	/* The link may have been trained at another speed */
+	if (udev->speed >= USB_SPEED_SUPER) {
+		speed = uhub_get_ext_port_speed(parent_hub, mtx,
+		    udev->port_no);
+		if (speed != USB_SPEED_VARIABLE)
+			udev->speed = speed;
 	}
 
 	/*
