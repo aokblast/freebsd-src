@@ -526,13 +526,13 @@ libusb_get_device_speed(libusb_device *dev)
 	return (LIBUSB_SPEED_UNKNOWN);
 }
 
-static libusb_endpoint_descriptor *
+static const libusb_endpoint_descriptor *
 libusb_get_endpoint_from_config(libusb_config_descriptor *pdconf,
     uint8_t endpoint)
 {
 	struct libusb_interface *pinf;
 	struct libusb_interface_descriptor *pdinf;
-	struct libusb_endpoint_descriptor *pdend;
+	const struct libusb_endpoint_descriptor *pdend;
 	int i;
 	int j;
 	int k;
@@ -557,11 +557,11 @@ int
 libusb_get_max_packet_size(libusb_device *dev, uint8_t endpoint)
 {
 	struct libusb_config_descriptor *pdconf;
-	struct libusb_endpoint_descriptor *pdend;
+	const struct libusb_endpoint_descriptor *pdend;
 	int ret;
 
 	if (dev == NULL)
-		return (LIBUSB_ERROR_OTHER);
+		return (LIBUSB_ERROR_NO_DEVICE);
 
 	ret = libusb_get_active_config_descriptor(dev, &pdconf);
 	if (ret < 0)
@@ -576,7 +576,8 @@ libusb_get_max_packet_size(libusb_device *dev, uint8_t endpoint)
 }
 
 static int
-libusb_calculate_ep_size(libusb_device *dev, libusb_endpoint_descriptor *ep)
+libusb_calculate_ep_size(libusb_device *dev,
+    const libusb_endpoint_descriptor *ep)
 {
 	struct libusb_ss_endpoint_companion_descriptor *ss_ep;
 	int multiplier;
@@ -606,11 +607,8 @@ libusb_calculate_ep_size(libusb_device *dev, libusb_endpoint_descriptor *ep)
 			break;
 		default:
 			type = ep->bmAttributes & 0x3;
-			if (ret > -1 &&
-			    (type ==
-				    LIBUSB_ENDPOINT_TRANSFER_TYPE_ISOCHRONOUS ||
-				type ==
-				    LIBUSB_ENDPOINT_TRANSFER_TYPE_INTERRUPT)) {
+			if (type == LIBUSB_ENDPOINT_TRANSFER_TYPE_ISOCHRONOUS ||
+			    type == LIBUSB_ENDPOINT_TRANSFER_TYPE_INTERRUPT) {
 				multiplier = (1 + ((ret >> 11) & 3));
 				if (multiplier > 3)
 					multiplier = 3;
@@ -627,11 +625,11 @@ int
 libusb_get_max_iso_packet_size(libusb_device *dev, uint8_t endpoint)
 {
 	struct libusb_config_descriptor *pdconf;
-	struct libusb_endpoint_descriptor *pdend;
+	const struct libusb_endpoint_descriptor *pdend;
 	int ret;
 
 	if (dev == NULL)
-		return (LIBUSB_ERROR_OTHER);
+		return (LIBUSB_ERROR_NO_DEVICE);
 
 	ret = libusb_get_active_config_descriptor(dev, &pdconf);
 	if (ret < 0)
@@ -655,11 +653,12 @@ libusb_get_max_alt_packet_size(libusb_device *dev, int interface_number,
 	struct libusb_config_descriptor *pdconf;
 	struct libusb_interface *pinf;
 	struct libusb_interface_descriptor *pdinf;
-	struct libusb_endpoint_descriptor *pdend = NULL, *pdend_tmp;
+	const struct libusb_endpoint_descriptor *pdend = NULL;
+	const struct libusb_endpoint_descriptor *pdend_tmp;
 	int ret, i;
 
 	if (dev == NULL)
-		return (LIBUSB_ERROR_OTHER);
+		return (LIBUSB_ERROR_NO_DEVICE);
 
 	ret = libusb_get_active_config_descriptor(dev, &pdconf);
 	if (ret < 0)
@@ -677,14 +676,12 @@ libusb_get_max_alt_packet_size(libusb_device *dev, int interface_number,
 	}
 	pdinf = &pinf->altsetting[alternate_setting];
 
-	if (pdinf->bNumEndpoints <= endpoint) {
-		libusb_free_config_descriptor(pdconf);
-		return (LIBUSB_ERROR_NOT_FOUND);
-	}
 	for (i = 0; i < pdinf->bNumEndpoints; ++i) {
 		pdend_tmp = &pdinf->endpoint[i];
-		if (pdend_tmp->bEndpointAddress == endpoint)
+		if (pdend_tmp->bEndpointAddress == endpoint) {
 			pdend = pdend_tmp;
+			break;
+		}
 	}
 	if (pdend != NULL)
 		ret = libusb_calculate_ep_size(dev, pdend);

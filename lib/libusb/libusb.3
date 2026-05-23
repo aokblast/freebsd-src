@@ -200,10 +200,9 @@ LIBUSB_ERROR_OTHERS on other failure.
 .Pp
 .Ft int
 .Fn libusb_get_max_alt_packet_size "libusb_device *dev" "int interface_number" "int alternate_setting" "unsigned char endpoint"
-Returns the packet on success,
-LIBUSB_ERROR_NOT_FOUND if the endpoint does not exist and
-LIBUSB_ERROR_OTHERS on other failure.
-For iso and interrupt packet, it will multiply the multiplixer as the standard described.
+Returns the maximum packet size which can be sent/received on this endpoint,
+LIBUSB_ERROR_NOT_FOUND if the endpoint does not exist, or
+LIBUSB_ERROR_OTHER on other failure.
 .Pp
 .Ft libusb_device *
 .Fn libusb_ref_device "libusb_device *dev"
