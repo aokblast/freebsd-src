@@ -244,7 +244,7 @@ typedef struct uhci_softc {
 usb_bus_mem_cb_t uhci_iterate_hw_softc;
 
 usb_error_t uhci_init(uhci_softc_t *sc);
-void	uhci_reset(uhci_softc_t *sc);
+void	uhci_reset_locked(uhci_softc_t *sc);
 void	uhci_interrupt(uhci_softc_t *sc);
 
 #endif					/* _UHCI_H_ */

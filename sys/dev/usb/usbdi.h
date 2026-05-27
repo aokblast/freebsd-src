@@ -126,6 +126,7 @@ struct usb_xfer_queue {
 	TAILQ_HEAD(, usb_xfer) head;
 	struct usb_xfer *curr;		/* current USB transfer processed */
 	void    (*command) (struct usb_xfer_queue *pq);
+	struct mtx *lock;		/* mutex asserted before calling command */
 	uint8_t	recurse_1:1;
 	uint8_t	recurse_2:1;
 	uint8_t	recurse_3:1;
@@ -603,7 +604,7 @@ usb_error_t usbd_do_request_flags(struct usb_device *udev, struct mtx *mtx,
 #define	usbd_do_request(u,m,r,d) \
   usbd_do_request_flags(u,m,r,d,0,NULL,USB_DEFAULT_TIMEOUT)
 
-uint8_t	usbd_clear_stall_callback(struct usb_xfer *xfer1,
+uint8_t	usbd_clear_stall_callback_locked(struct usb_xfer *xfer1,
 	    struct usb_xfer *xfer2);
 uint8_t	usbd_get_interface_altindex(struct usb_interface *iface);
 usb_error_t usbd_set_alt_interface_index(struct usb_device *udev,
@@ -616,12 +617,12 @@ usb_error_t usbd_transfer_setup(struct usb_device *udev,
 	    const uint8_t *ifaces, struct usb_xfer **pxfer,
 	    const struct usb_config *setup_start, uint16_t n_setup,
 	    void *priv_sc, struct mtx *priv_mtx);
-void	usbd_transfer_submit(struct usb_xfer *xfer);
-void	usbd_transfer_clear_stall(struct usb_xfer *xfer);
+void	usbd_transfer_submit_locked(struct usb_xfer *xfer);
+void	usbd_transfer_clear_stall_locked(struct usb_xfer *xfer);
 void	usbd_transfer_drain(struct usb_xfer *xfer);
-uint8_t	usbd_transfer_pending(struct usb_xfer *xfer);
-void	usbd_transfer_start(struct usb_xfer *xfer);
-void	usbd_transfer_stop(struct usb_xfer *xfer);
+uint8_t	usbd_transfer_pending_locked(struct usb_xfer *xfer);
+void	usbd_transfer_start_locked(struct usb_xfer *xfer);
+void	usbd_transfer_stop_locked(struct usb_xfer *xfer);
 void	usbd_transfer_unsetup(struct usb_xfer **pxfer, uint16_t n_setup);
 void	usbd_transfer_poll(struct usb_xfer **ppxfer, uint16_t max);
 void	usbd_set_parent_iface(struct usb_device *udev, uint8_t iface_index,
@@ -659,9 +660,9 @@ void	usbd_xfer_set_frame_len(struct usb_xfer *xfer, usb_frcount_t frindex,
 	    usb_frlength_t len);
 void	usbd_xfer_set_timeout(struct usb_xfer *xfer, int timeout);
 void	usbd_xfer_set_frames(struct usb_xfer *xfer, usb_frcount_t n);
-void	usbd_xfer_set_zlp(struct usb_xfer *xfer);
-uint8_t	usbd_xfer_get_and_clr_zlp(struct usb_xfer *xfer);
-void	usbd_xfer_set_stall(struct usb_xfer *xfer);
+void	usbd_xfer_set_zlp_locked(struct usb_xfer *xfer);
+uint8_t	usbd_xfer_get_and_clr_zlp_locked(struct usb_xfer *xfer);
+void	usbd_xfer_set_stall_locked(struct usb_xfer *xfer);
 int	usbd_xfer_is_stalled(struct usb_xfer *xfer);
 void	usbd_xfer_set_flag(struct usb_xfer *xfer, int flag);
 void	usbd_xfer_clr_flag(struct usb_xfer *xfer, int flag);

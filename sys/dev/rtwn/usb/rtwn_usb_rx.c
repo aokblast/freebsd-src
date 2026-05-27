@@ -416,7 +416,7 @@ tr_setup:
 		STAILQ_INSERT_TAIL(&uc->uc_rx_active, data, next);
 		usbd_xfer_set_frame_data(xfer, 0, data->buf,
 		    usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		/*
 		 * To avoid LOR we should unlock our private mutex here to call
@@ -457,7 +457,7 @@ tr_setup:
 		if (error != USB_ERR_CANCELLED) {
 			/* XXX restart device if frame was fragmented? */
 
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			counter_u64_add(ic->ic_ierrors, 1);
 			goto tr_setup;
 		}

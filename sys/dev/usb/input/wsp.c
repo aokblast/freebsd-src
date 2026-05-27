@@ -1370,14 +1370,14 @@ tr_setup:
 		    sc->sc_fifo.fp[USB_FIFO_RX]) != 0) {
 			usbd_xfer_set_frame_len(xfer, 0,
 			    sc->tp_datalen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -1444,19 +1444,19 @@ wsp_start_read(struct wsp_softc *sc)
 	/* Check for set rate */
 	if ((rate > 0) && (sc->sc_xfer[WSP_INTR_DT] != NULL)) {
 		/* Stop current transfer, if any */
-		usbd_transfer_stop(sc->sc_xfer[WSP_INTR_DT]);
+		usbd_transfer_stop_locked(sc->sc_xfer[WSP_INTR_DT]);
 		/* Set new interval */
 		usbd_xfer_set_interval(sc->sc_xfer[WSP_INTR_DT], 1000 / rate);
 		/* Only set pollrate once */
 		sc->sc_pollrate = 0;
 	}
-	usbd_transfer_start(sc->sc_xfer[WSP_INTR_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[WSP_INTR_DT]);
 }
 
 static void
 wsp_stop_read(struct wsp_softc *sc)
 {
-	usbd_transfer_stop(sc->sc_xfer[WSP_INTR_DT]);
+	usbd_transfer_stop_locked(sc->sc_xfer[WSP_INTR_DT]);
 }
 
 static int

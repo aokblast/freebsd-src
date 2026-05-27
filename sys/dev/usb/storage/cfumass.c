@@ -444,14 +444,14 @@ static void
 cfumass_transfer_start(struct cfumass_softc *sc, uint8_t xfer_index)
 {
 
-	usbd_transfer_start(sc->sc_xfer[xfer_index]);
+	usbd_transfer_start_locked(sc->sc_xfer[xfer_index]);
 }
 
 static void
 cfumass_transfer_stop_and_drain(struct cfumass_softc *sc, uint8_t xfer_index)
 {
 
-	usbd_transfer_stop(sc->sc_xfer[xfer_index]);
+	usbd_transfer_stop_locked(sc->sc_xfer[xfer_index]);
 	CFUMASS_UNLOCK(sc);
 	usbd_transfer_drain(sc->sc_xfer[xfer_index]);
 	CFUMASS_LOCK(sc);
@@ -650,7 +650,7 @@ cfumass_t_command_callback(struct usb_xfer *xfer, usb_error_t usb_error)
 
 		if (!cfumass_port_online) {
 			CFUMASS_DEBUG(sc, "cfumass port is offline; stalling");
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			break;
 		}
 
@@ -677,7 +677,7 @@ cfumass_t_command_callback(struct usb_xfer *xfer, usb_error_t usb_error)
 			ctl_free_io(io);
 			refcount_release(&sc->sc_queued);
 			CFUMASS_LOCK(sc);
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			break;
 		}
 
@@ -689,7 +689,7 @@ tr_setup:
 		CFUMASS_DEBUG(sc, "USB_ST_SETUP");
 
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(*sc->sc_cbw));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:
@@ -764,7 +764,7 @@ tr_setup:
 
 		usbd_xfer_set_frame_data(xfer, 0,
 		    (uint8_t *)sglist->addr + sumlen, actlen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:
@@ -800,7 +800,7 @@ tr_setup:
 
 		if (sc->sc_current_residue > 0 && !sc->sc_current_stalled) {
 			CFUMASS_DEBUG(sc, "non-zero residue, stalling");
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			sc->sc_current_stalled = true;
 		}
 
@@ -810,7 +810,7 @@ tr_setup:
 		sc->sc_csw->bCSWStatus = sc->sc_current_status;
 
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(*sc->sc_csw));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:

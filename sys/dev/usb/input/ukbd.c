@@ -534,8 +534,8 @@ ukbd_get_key(struct ukbd_softc *sc, uint8_t wait)
 	if (sc->sc_inputs == 0 &&
 	    (sc->sc_flags & UKBD_FLAG_GONE) == 0) {
 		/* start transfer, if not already started */
-		usbd_transfer_start(sc->sc_xfer[UKBD_INTR_DT_0]);
-		usbd_transfer_start(sc->sc_xfer[UKBD_INTR_DT_1]);
+		usbd_transfer_start_locked(sc->sc_xfer[UKBD_INTR_DT_0]);
+		usbd_transfer_start_locked(sc->sc_xfer[UKBD_INTR_DT_1]);
 	}
 
 	if (sc->sc_flags & UKBD_FLAG_POLLING)
@@ -915,7 +915,7 @@ ukbd_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 tr_setup:
 		if (sc->sc_inputs < UKBD_IN_BUF_FULL) {
 			usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		} else {
 			DPRINTF("input queue is full!\n");
 		}
@@ -926,7 +926,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -1029,7 +1029,7 @@ ukbd_set_leds_callback(struct usb_xfer *xfer, usb_error_t error)
 
 		/* start data transfer */
 		usbd_xfer_set_frames(xfer, 2);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -1426,8 +1426,8 @@ ukbd_attach(device_t dev)
 	}
 #endif
 	/* start the keyboard */
-	usbd_transfer_start(sc->sc_xfer[UKBD_INTR_DT_0]);
-	usbd_transfer_start(sc->sc_xfer[UKBD_INTR_DT_1]);
+	usbd_transfer_start_locked(sc->sc_xfer[UKBD_INTR_DT_0]);
+	usbd_transfer_start_locked(sc->sc_xfer[UKBD_INTR_DT_1]);
 
 	return (0);			/* success */
 
@@ -1453,8 +1453,8 @@ ukbd_detach(device_t dev)
 	/* kill any stuck keys */
 	if (sc->sc_flags & UKBD_FLAG_ATTACHED) {
 		/* stop receiving events from the USB keyboard */
-		usbd_transfer_stop(sc->sc_xfer[UKBD_INTR_DT_0]);
-		usbd_transfer_stop(sc->sc_xfer[UKBD_INTR_DT_1]);
+		usbd_transfer_stop_locked(sc->sc_xfer[UKBD_INTR_DT_0]);
+		usbd_transfer_stop_locked(sc->sc_xfer[UKBD_INTR_DT_1]);
 
 		/* release all leftover keys, if any */
 		memset(&sc->sc_ndata, 0, sizeof(sc->sc_ndata));
@@ -2166,7 +2166,7 @@ ukbd_set_leds(struct ukbd_softc *sc, uint8_t leds)
 
 	/* start transfer, if not already started */
 
-	usbd_transfer_start(sc->sc_xfer[UKBD_CTRL_LED]);
+	usbd_transfer_start_locked(sc->sc_xfer[UKBD_CTRL_LED]);
 }
 
 static int

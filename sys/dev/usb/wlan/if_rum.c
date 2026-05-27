@@ -1128,7 +1128,7 @@ tr_setup:
 			usbd_xfer_set_frame_len(xfer, 0, len);
 			usbd_xfer_set_priv(xfer, data);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		rum_start(sc);
 		break;
@@ -1153,7 +1153,7 @@ tr_setup:
 			 * errors occur, hence clearing stall
 			 * introduces a 50 ms delay:
 			 */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -1271,7 +1271,7 @@ rum_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		/*
 		 * At the end of a USB callback it is always safe to unlock
@@ -1300,7 +1300,7 @@ tr_setup:
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1443,7 +1443,7 @@ rum_sendprot(struct rum_softc *sc,
 	    mprot->m_pkthdr.len, protrate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[RUM_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUM_BULK_WR]);
 
 	return 0;
 }
@@ -1547,7 +1547,7 @@ rum_tx_mgt(struct rum_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 	    m0->m_pkthdr.len + (int)RT2573_TX_DESC_SIZE, tp->mgmtrate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[RUM_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUM_BULK_WR]);
 
 	return (0);
 }
@@ -1607,7 +1607,7 @@ rum_tx_raw(struct rum_softc *sc, struct mbuf *m0, struct ieee80211_node *ni,
 	    m0->m_pkthdr.len, rate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[RUM_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUM_BULK_WR]);
 
 	return 0;
 }
@@ -1714,7 +1714,7 @@ rum_tx_data(struct rum_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 	    m0->m_pkthdr.len + (int)RT2573_TX_DESC_SIZE, rate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[RUM_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUM_BULK_WR]);
 
 	return 0;
 }
@@ -2616,8 +2616,8 @@ rum_init(struct rum_softc *sc)
 	rum_write(sc, RT2573_TXRX_CSR0, tmp);
 
 	sc->sc_running = 1;
-	usbd_xfer_set_stall(sc->sc_xfer[RUM_BULK_WR]);
-	usbd_transfer_start(sc->sc_xfer[RUM_BULK_RD]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[RUM_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUM_BULK_RD]);
 
 end:	RUM_UNLOCK(sc);
 

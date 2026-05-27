@@ -199,7 +199,7 @@ uhub_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 
 	case USB_ST_SETUP:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -209,22 +209,22 @@ uhub_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 			 * will get cleared before next callback by
 			 * the USB stack.
 			 */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 	}
 }
 
 /*------------------------------------------------------------------------*
- *      uhub_reset_tt_proc
+ *      uhub_reset_tt_proc_locked
  *
  * This function starts the TT reset USB request
  *------------------------------------------------------------------------*/
 #if USB_HAVE_TT_SUPPORT
 static void
-uhub_reset_tt_proc(struct usb_proc_msg *_pm)
+uhub_reset_tt_proc_locked(struct usb_proc_msg *_pm)
 {
 	struct usb_udev_msg *pm = (void *)_pm;
 	struct usb_device *udev = pm->udev;
@@ -242,7 +242,7 @@ uhub_reset_tt_proc(struct usb_proc_msg *_pm)
 	USB_BUS_UNLOCK(udev->bus);
 	USB_MTX_LOCK(&sc->sc_mtx);
 	/* Start transfer */
-	usbd_transfer_start(sc->sc_xfer[UHUB_RESET_TT_TRANSFER]);
+	usbd_transfer_start_locked(sc->sc_xfer[UHUB_RESET_TT_TRANSFER]);
 	/* Change lock */
 	USB_MTX_UNLOCK(&sc->sc_mtx);
 	USB_BUS_LOCK(udev->bus);
@@ -316,7 +316,7 @@ uhub_tt_buffer_reset_async_locked(struct usb_device *child, struct usb_endpoint 
 	}
 	up->req_reset_tt = req;
 	/* get reset transfer started */
-	usb_proc_msignal(USB_BUS_TT_PROC(udev->bus),
+	usb_proc_msignal_locked(USB_BUS_TT_PROC(udev->bus),
 	    &hub->tt_msg[0], &hub->tt_msg[1]);
 }
 #endif
@@ -358,7 +358,7 @@ tr_setup:
 			xfer->nframes = 1;
 			USB_BUS_UNLOCK(udev->bus);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 			return;
 		}
 		USB_BUS_UNLOCK(udev->bus);
@@ -954,7 +954,7 @@ done:
  * packet. This function is called having the "bus_mtx" locked.
  *------------------------------------------------------------------------*/
 void
-uhub_root_intr(struct usb_bus *bus,
+uhub_root_intr_locked(struct usb_bus *bus,
     const uint8_t *ptr __unused, uint8_t len __unused)
 {
 	USB_BUS_LOCK_ASSERT(bus, MA_OWNED);
@@ -1380,9 +1380,9 @@ uhub_attach(device_t dev)
 	hub->nports = nports;
 	hub->hubudev = udev;
 #if USB_HAVE_TT_SUPPORT
-	hub->tt_msg[0].hdr.pm_callback = &uhub_reset_tt_proc;
+	hub->tt_msg[0].hdr.pm_callback = &uhub_reset_tt_proc_locked;
 	hub->tt_msg[0].udev = udev;
-	hub->tt_msg[1].hdr.pm_callback = &uhub_reset_tt_proc;
+	hub->tt_msg[1].hdr.pm_callback = &uhub_reset_tt_proc_locked;
 	hub->tt_msg[1].udev = udev;
 #endif
 	/* if self powered hub, give ports maximum current */
@@ -1519,7 +1519,7 @@ uhub_attach(device_t dev)
 	/* Start the interrupt endpoint, if any */
 
 	USB_MTX_LOCK(&sc->sc_mtx);
-	usbd_transfer_start(sc->sc_xfer[UHUB_INTR_TRANSFER]);
+	usbd_transfer_start_locked(sc->sc_xfer[UHUB_INTR_TRANSFER]);
 	USB_MTX_UNLOCK(&sc->sc_mtx);
 
 	/* Enable automatic power save on all USB HUBs */
@@ -1577,7 +1577,7 @@ uhub_detach(device_t dev)
 #if USB_HAVE_TT_SUPPORT
 	/* Make sure our TT messages are not queued anywhere */
 	USB_BUS_LOCK(bus);
-	usb_proc_mwait(USB_BUS_TT_PROC(bus),
+	usb_proc_mwait_locked(USB_BUS_TT_PROC(bus),
 	    &hub->tt_msg[0], &hub->tt_msg[1]);
 	USB_BUS_UNLOCK(bus);
 #endif
@@ -1848,7 +1848,7 @@ usb_intr_find_best_slot(usb_size_t *ptr, uint8_t start,
 }
 
 /*------------------------------------------------------------------------*
- *	usb_hs_bandwidth_adjust
+ *	usb_hs_bandwidth_adjust_locked
  *
  * This function will update the bandwidth usage for the microframe
  * having index "slot" by "len" bytes. "len" can be negative.  If the
@@ -1860,7 +1860,7 @@ usb_intr_find_best_slot(usb_size_t *ptr, uint8_t start,
  *    The slot in which the bandwidth update was done: 0..7
  *------------------------------------------------------------------------*/
 static uint8_t
-usb_hs_bandwidth_adjust(struct usb_device *udev, int16_t len,
+usb_hs_bandwidth_adjust_locked(struct usb_device *udev, int16_t len,
     uint8_t slot, uint8_t mask)
 {
 	struct usb_bus *bus = udev->bus;
@@ -1915,7 +1915,7 @@ usb_hs_bandwidth_adjust(struct usb_device *udev, int16_t len,
 /*------------------------------------------------------------------------*
  *	usb_hs_bandwidth_alloc
  *
- * This function is a wrapper function for "usb_hs_bandwidth_adjust()".
+ * This function is a wrapper function for "usb_hs_bandwidth_adjust_locked()".
  *------------------------------------------------------------------------*/
 void
 usb_hs_bandwidth_alloc(struct usb_xfer *xfer)
@@ -1941,7 +1941,7 @@ usb_hs_bandwidth_alloc(struct usb_xfer *xfer)
 		/* allocate a microframe slot */
 
 		mask = 0x01;
-		slot = usb_hs_bandwidth_adjust(udev,
+		slot = usb_hs_bandwidth_adjust_locked(udev,
 		    xfer->max_frame_size, USB_HS_MICRO_FRAMES_MAX, mask);
 
 		xfer->endpoint->usb_uframe = slot;
@@ -1973,7 +1973,7 @@ usb_hs_bandwidth_alloc(struct usb_xfer *xfer)
 
 		/* allocate a microframe multi-slot */
 
-		slot = usb_hs_bandwidth_adjust(udev,
+		slot = usb_hs_bandwidth_adjust_locked(udev,
 		    xfer->max_frame_size, USB_HS_MICRO_FRAMES_MAX, mask);
 
 		xfer->endpoint->usb_uframe = slot;
@@ -1996,7 +1996,7 @@ usb_hs_bandwidth_alloc(struct usb_xfer *xfer)
 /*------------------------------------------------------------------------*
  *	usb_hs_bandwidth_free
  *
- * This function is a wrapper function for "usb_hs_bandwidth_adjust()".
+ * This function is a wrapper function for "usb_hs_bandwidth_adjust_locked()".
  *------------------------------------------------------------------------*/
 void
 usb_hs_bandwidth_free(struct usb_xfer *xfer)
@@ -2022,7 +2022,7 @@ usb_hs_bandwidth_free(struct usb_xfer *xfer)
 		mask = xfer->endpoint->usb_smask;
 
 		/* free microframe slot(s): */ 	  
-		usb_hs_bandwidth_adjust(udev,
+		usb_hs_bandwidth_adjust_locked(udev,
 		    -xfer->max_frame_size, slot, mask >> slot);
 
 		DPRINTFN(11, "slot=%d, mask=0x%02x\n", 
@@ -2039,7 +2039,7 @@ usb_hs_bandwidth_free(struct usb_xfer *xfer)
 }
 
 /*------------------------------------------------------------------------*
- *	usb_isoc_time_expand
+ *	usb_isoc_time_expand_locked
  *
  * This function will expand the time counter from 7-bit to 16-bit.
  *
@@ -2047,7 +2047,7 @@ usb_hs_bandwidth_free(struct usb_xfer *xfer)
  *   16-bit isochronous time counter.
  *------------------------------------------------------------------------*/
 uint16_t
-usb_isoc_time_expand(struct usb_bus *bus, uint16_t isoc_time_curr)
+usb_isoc_time_expand_locked(struct usb_bus *bus, uint16_t isoc_time_curr)
 {
 	uint16_t rem;
 
@@ -2294,7 +2294,7 @@ usb_needs_explore(struct usb_bus *bus, uint8_t do_probe)
 	if (do_probe) {
 		bus->do_probe = 1;
 	}
-	if (usb_proc_msignal(USB_BUS_EXPLORE_PROC(bus),
+	if (usb_proc_msignal_locked(USB_BUS_EXPLORE_PROC(bus),
 	    &bus->explore_msg[0], &bus->explore_msg[1])) {
 		/* ignore */
 	}
@@ -2735,7 +2735,7 @@ usb_dev_resume_peer(struct usb_device *udev)
 	usbd_sr_lock(udev);
 
 	/* notify all sub-devices about resume */
-	err = usb_suspend_resume(udev, 0);
+	err = usb_suspend_resume_locked(udev, 0);
 
 	usbd_sr_unlock(udev);
 
@@ -2861,7 +2861,7 @@ repeat:
 	usbd_sr_lock(udev);
 
 	/* notify all sub-devices about suspend */
-	err = usb_suspend_resume(udev, 1);
+	err = usb_suspend_resume_locked(udev, 1);
 
 	usbd_sr_unlock(udev);
 

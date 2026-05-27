@@ -434,8 +434,8 @@ ufoma_attach(device_t dev)
 
 	/* clear stall at first run, if any */
 	mtx_lock(&sc->sc_mtx);
-	usbd_xfer_set_stall(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_WRITE]);
-	usbd_xfer_set_stall(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_READ]);
+	usbd_xfer_set_stall_locked(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_WRITE]);
+	usbd_xfer_set_stall_locked(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_READ]);
 	mtx_unlock(&sc->sc_mtx);
 
 	error = ucom_attach(&sc->sc_super_ucom, &sc->sc_ucom, 1, sc,
@@ -609,7 +609,7 @@ tr_setup:
 			usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 			usbd_xfer_set_frame_len(xfer, 1, UFOMA_CMD_BUF_SIZE);
 			usbd_xfer_set_frames(xfer, 2);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -651,7 +651,7 @@ tr_transferred:
 			usbd_xfer_set_frame_len(xfer, 1, 1);
 			usbd_xfer_set_frames(xfer, 2);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -718,7 +718,7 @@ ufoma_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 			if (sc->sc_num_msg != 0xFF) {
 				sc->sc_num_msg++;
 			}
-			usbd_transfer_start(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_READ]);
+			usbd_transfer_start_locked(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_READ]);
 			break;
 
 		case UCDC_N_SERIAL_STATE:
@@ -763,13 +763,13 @@ ufoma_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -791,14 +791,14 @@ tr_setup:
 		if (ucom_get_data(&sc->sc_ucom, pc, 0,
 		    UFOMA_BULK_BUF_SIZE, &actlen)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -822,13 +822,13 @@ ufoma_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1090,13 +1090,13 @@ ufoma_start_read(struct ucom_softc *ucom)
 	struct ufoma_softc *sc = ucom->sc_parent;
 
 	/* start interrupt transfer */
-	usbd_transfer_start(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_INTR]);
+	usbd_transfer_start_locked(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_INTR]);
 
 	/* start data transfer */
 	if (sc->sc_nobulk) {
-		usbd_transfer_start(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_READ]);
+		usbd_transfer_start_locked(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_READ]);
 	} else {
-		usbd_transfer_start(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_READ]);
+		usbd_transfer_start_locked(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_READ]);
 	}
 }
 
@@ -1106,13 +1106,13 @@ ufoma_stop_read(struct ucom_softc *ucom)
 	struct ufoma_softc *sc = ucom->sc_parent;
 
 	/* stop interrupt transfer */
-	usbd_transfer_stop(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_INTR]);
+	usbd_transfer_stop_locked(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_INTR]);
 
 	/* stop data transfer */
 	if (sc->sc_nobulk) {
-		usbd_transfer_stop(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_READ]);
+		usbd_transfer_stop_locked(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_READ]);
 	} else {
-		usbd_transfer_stop(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_READ]);
+		usbd_transfer_stop_locked(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_READ]);
 	}
 }
 
@@ -1122,9 +1122,9 @@ ufoma_start_write(struct ucom_softc *ucom)
 	struct ufoma_softc *sc = ucom->sc_parent;
 
 	if (sc->sc_nobulk) {
-		usbd_transfer_start(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_WRITE]);
+		usbd_transfer_start_locked(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_WRITE]);
 	} else {
-		usbd_transfer_start(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_WRITE]);
+		usbd_transfer_start_locked(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_WRITE]);
 	}
 }
 
@@ -1134,9 +1134,9 @@ ufoma_stop_write(struct ucom_softc *ucom)
 	struct ufoma_softc *sc = ucom->sc_parent;
 
 	if (sc->sc_nobulk) {
-		usbd_transfer_stop(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_WRITE]);
+		usbd_transfer_stop_locked(sc->sc_ctrl_xfer[UFOMA_CTRL_ENDPT_WRITE]);
 	} else {
-		usbd_transfer_stop(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_WRITE]);
+		usbd_transfer_stop_locked(sc->sc_bulk_xfer[UFOMA_BULK_ENDPT_WRITE]);
 	}
 }
 

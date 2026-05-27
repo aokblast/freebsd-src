@@ -408,7 +408,7 @@ usie_attach(device_t self)
 
 		mtx_lock(&sc->sc_mtx);
 		for (; start < USIE_UC_N_XFER; start++)
-			usbd_xfer_set_stall(sc->sc_uc_xfer[sc->sc_nucom][start]);
+			usbd_xfer_set_stall_locked(sc->sc_uc_xfer[sc->sc_nucom][start]);
 		mtx_unlock(&sc->sc_mtx);
 
 		sc->sc_uc_ifnum[sc->sc_nucom] = id->bInterfaceNumber;
@@ -564,9 +564,9 @@ usie_uc_cfg_open(struct ucom_softc *ucom)
 {
 	struct usie_softc *sc = ucom->sc_parent;
 
-	/* usbd_transfer_start() is NULL safe */
+	/* usbd_transfer_start_locked() is NULL safe */
 
-	usbd_transfer_start(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_STATUS]);
+	usbd_transfer_start_locked(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_STATUS]);
 }
 
 static void
@@ -574,7 +574,7 @@ usie_uc_cfg_close(struct ucom_softc *ucom)
 {
 	struct usie_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_STATUS]);
+	usbd_transfer_stop_locked(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_STATUS]);
 }
 
 static void
@@ -582,7 +582,7 @@ usie_uc_start_read(struct ucom_softc *ucom)
 {
 	struct usie_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_RX]);
+	usbd_transfer_start_locked(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_RX]);
 }
 
 static void
@@ -590,7 +590,7 @@ usie_uc_stop_read(struct ucom_softc *ucom)
 {
 	struct usie_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_RX]);
+	usbd_transfer_stop_locked(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_RX]);
 }
 
 static void
@@ -598,7 +598,7 @@ usie_uc_start_write(struct ucom_softc *ucom)
 {
 	struct usie_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_TX]);
+	usbd_transfer_start_locked(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_TX]);
 }
 
 static void
@@ -606,7 +606,7 @@ usie_uc_stop_write(struct ucom_softc *ucom)
 {
 	struct usie_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_TX]);
+	usbd_transfer_stop_locked(sc->sc_uc_xfer[ucom->sc_subunit][USIE_UC_TX]);
 }
 
 static void
@@ -651,12 +651,12 @@ usie_uc_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -683,20 +683,20 @@ tr_setup:
 			usbd_m_copy_in(pc, 0, m, 0, m->m_pkthdr.len);
 			usbd_xfer_set_frame_len(xfer, 0, m->m_pkthdr.len);
 			usbd_xfer_set_priv(xfer, NULL);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 			m_freem(m);
 			break;
 		}
 		/* standard ucom transfer */
 		if (ucom_get_data(ucom, pc, 0, USIE_BUFSIZE, &actlen)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -745,7 +745,7 @@ usie_uc_status_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -753,7 +753,7 @@ tr_setup:
 		    usbd_errstr(error));
 
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -802,7 +802,7 @@ tr_setup:
 		if (sc->sc_rxm == NULL) {
 			DPRINTF("could not allocate Rx mbuf\n");
 			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			usbd_xfer_set_frames(xfer, 0);
 		} else {
 			/*
@@ -814,7 +814,7 @@ tr_setup:
 			    mtod(sc->sc_rxm, caddr_t), MIN(MJUMPAGESIZE, USIE_RXSZ_MAX));
 			usbd_xfer_set_frames(xfer, 1);
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -822,7 +822,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			goto tr_setup;
 		}
@@ -965,7 +965,7 @@ tr_setup:
 
 		m_freem(m);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -974,7 +974,7 @@ tr_setup:
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 			goto tr_setup;
 		}
@@ -1014,7 +1014,7 @@ usie_if_status_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -1022,7 +1022,7 @@ tr_setup:
 		    usbd_errstr(error));
 
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -1176,7 +1176,7 @@ usie_if_start(if_t ifp)
 		return;
 	}
 	mtx_lock(&sc->sc_mtx);
-	usbd_transfer_start(sc->sc_if_xfer[USIE_IF_TX]);
+	usbd_transfer_start_locked(sc->sc_if_xfer[USIE_IF_TX]);
 	mtx_unlock(&sc->sc_mtx);
 
 	DPRINTFN(3, "interface started\n");
@@ -1234,11 +1234,11 @@ usie_if_init(void *arg)
 	sc->sc_txd.desc_type = htobe16(USIE_IP_TX);
 
 	for (i = 0; i != USIE_IF_N_XFER; i++)
-		usbd_xfer_set_stall(sc->sc_if_xfer[i]);
+		usbd_xfer_set_stall_locked(sc->sc_if_xfer[i]);
 
-	usbd_transfer_start(sc->sc_uc_xfer[USIE_HIP_IF][USIE_UC_RX]);
-	usbd_transfer_start(sc->sc_if_xfer[USIE_IF_STATUS]);
-	usbd_transfer_start(sc->sc_if_xfer[USIE_IF_RX]);
+	usbd_transfer_start_locked(sc->sc_uc_xfer[USIE_HIP_IF][USIE_UC_RX]);
+	usbd_transfer_start_locked(sc->sc_if_xfer[USIE_IF_STATUS]);
+	usbd_transfer_start_locked(sc->sc_if_xfer[USIE_IF_RX]);
 
 	/* if not running, initiate the modem */
 	if (!(if_getdrvflags(ifp) & IFF_DRV_RUNNING))
@@ -1259,9 +1259,9 @@ usie_if_stop(struct usie_softc *sc)
 	/* usie_cns_req() clears IFF_* flags */
 	usie_cns_req(sc, USIE_CNS_ID_STOP, USIE_CNS_OB_LINK_UPDATE);
 
-	usbd_transfer_stop(sc->sc_if_xfer[USIE_IF_TX]);
-	usbd_transfer_stop(sc->sc_if_xfer[USIE_IF_RX]);
-	usbd_transfer_stop(sc->sc_if_xfer[USIE_IF_STATUS]);
+	usbd_transfer_stop_locked(sc->sc_if_xfer[USIE_IF_TX]);
+	usbd_transfer_stop_locked(sc->sc_if_xfer[USIE_IF_RX]);
+	usbd_transfer_stop_locked(sc->sc_if_xfer[USIE_IF_STATUS]);
 
 	/* shutdown device */
 	usie_if_cmd(sc, USIE_HIP_DOWN);
@@ -1452,7 +1452,7 @@ usie_cns_req(struct usie_softc *sc, uint32_t id, uint16_t obj)
 
 	if (usbd_xfer_get_priv(xfer) == NULL) {
 		usbd_xfer_set_priv(xfer, m);
-		usbd_transfer_start(xfer);
+		usbd_transfer_start_locked(xfer);
 	} else {
 		DPRINTF("Dropped CNS event\n");
 		m_freem(m);

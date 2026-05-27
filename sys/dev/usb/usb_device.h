@@ -311,13 +311,13 @@ void	usb_destroy_dev_sync(struct usb_fs_privdata *);
 #endif
 usb_error_t	usb_probe_and_attach(struct usb_device *udev,
 		    uint8_t iface_index);
-void		usb_detach_device(struct usb_device *, uint8_t, uint8_t);
+void		usb_detach_device_locked(struct usb_device *, uint8_t, uint8_t);
 usb_error_t	usb_reset_iface_endpoints(struct usb_device *udev,
 		    uint8_t iface_index);
 usb_error_t	usbd_set_config_index(struct usb_device *udev, uint8_t index);
 usb_error_t	usbd_set_endpoint_stall(struct usb_device *udev,
 		    struct usb_endpoint *ep, uint8_t do_stall);
-usb_error_t	usb_suspend_resume(struct usb_device *udev,
+usb_error_t	usb_suspend_resume_locked(struct usb_device *udev,
 		    uint8_t do_suspend);
 void	usb_devinfo(struct usb_device *udev, char *dst_ptr, uint16_t dst_len);
 void	usb_free_device(struct usb_device *, uint8_t);

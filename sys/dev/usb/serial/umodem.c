@@ -501,10 +501,10 @@ umodem_start_read(struct ucom_softc *ucom)
 	struct umodem_softc *sc = ucom->sc_parent;
 
 	/* start interrupt endpoint, if any */
-	usbd_transfer_start(sc->sc_xfer[UMODEM_INTR_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMODEM_INTR_RD]);
 
 	/* start read endpoint */
-	usbd_transfer_start(sc->sc_xfer[UMODEM_BULK_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMODEM_BULK_RD]);
 }
 
 static void
@@ -513,10 +513,10 @@ umodem_stop_read(struct ucom_softc *ucom)
 	struct umodem_softc *sc = ucom->sc_parent;
 
 	/* stop interrupt endpoint, if any */
-	usbd_transfer_stop(sc->sc_xfer[UMODEM_INTR_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMODEM_INTR_RD]);
 
 	/* stop read endpoint */
-	usbd_transfer_stop(sc->sc_xfer[UMODEM_BULK_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMODEM_BULK_RD]);
 }
 
 static void
@@ -524,8 +524,8 @@ umodem_start_write(struct ucom_softc *ucom)
 {
 	struct umodem_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_xfer[UMODEM_INTR_WR]);
-	usbd_transfer_start(sc->sc_xfer[UMODEM_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMODEM_INTR_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMODEM_BULK_WR]);
 }
 
 static void
@@ -533,8 +533,8 @@ umodem_stop_write(struct ucom_softc *ucom)
 {
 	struct umodem_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_xfer[UMODEM_INTR_WR]);
-	usbd_transfer_stop(sc->sc_xfer[UMODEM_BULK_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMODEM_INTR_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMODEM_BULK_WR]);
 }
 
 static void
@@ -633,8 +633,8 @@ umodem_cfg_open(struct ucom_softc *ucom)
 
 	/* clear stall, if in USB host mode */
 	if ((sc->sc_super_ucom.sc_flag & UCOM_FLAG_DEVICE_MODE) == 0) {
-		usbd_xfer_set_stall(sc->sc_xfer[UMODEM_BULK_WR]);
-		usbd_xfer_set_stall(sc->sc_xfer[UMODEM_BULK_RD]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[UMODEM_BULK_WR]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[UMODEM_BULK_RD]);
 	}
 }
 
@@ -759,7 +759,7 @@ tr_setup:
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* start clear stall */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -844,13 +844,13 @@ umodem_intr_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -872,14 +872,14 @@ tr_setup:
 		if (ucom_get_data(&sc->sc_ucom, pc, 0,
 		    UMODEM_BUF_SIZE, &actlen)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -906,13 +906,13 @@ umodem_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;

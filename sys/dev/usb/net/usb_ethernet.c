@@ -89,7 +89,7 @@ static void	ue_watchdog(void *);
 uint8_t
 uether_pause(struct usb_ether *ue, unsigned _ticks)
 {
-	if (usb_proc_is_gone(&ue->ue_tq)) {
+	if (usb_proc_is_gone_locked(&ue->ue_tq)) {
 		/* nothing to do */
 		return (1);
 	}
@@ -106,7 +106,7 @@ ue_queue_command(struct usb_ether *ue,
 
 	UE_LOCK_ASSERT(ue, MA_OWNED);
 
-	if (usb_proc_is_gone(&ue->ue_tq)) {
+	if (usb_proc_is_gone_locked(&ue->ue_tq)) {
 		return;         /* nothing to do */
 	}
 	/* 
@@ -115,7 +115,7 @@ ue_queue_command(struct usb_ether *ue,
 	 * structure after that the message got queued.
 	 */
 	task = (struct usb_ether_cfg_task *)
-	  usb_proc_msignal(&ue->ue_tq, t0, t1);
+	  usb_proc_msignal_locked(&ue->ue_tq, t0, t1);
 
 	/* Setup callback and self pointers */
 	task->hdr.pm_callback = fn;
@@ -125,7 +125,7 @@ ue_queue_command(struct usb_ether *ue,
 	 * Start and stop must be synchronous!
 	 */
 	if ((fn == ue_start_task) || (fn == ue_stop_task))
-		usb_proc_mwait(&ue->ue_tq, t0, t1);
+		usb_proc_mwait_locked(&ue->ue_tq, t0, t1);
 }
 
 if_t 
@@ -191,7 +191,7 @@ uether_ifattach_wait(struct usb_ether *ue)
 {
 
 	UE_LOCK(ue);
-	usb_proc_mwait(&ue->ue_tq,
+	usb_proc_mwait_locked(&ue->ue_tq,
 	    &ue->ue_sync_task[0].hdr,
 	    &ue->ue_sync_task[1].hdr);
 	UE_UNLOCK(ue);
@@ -339,7 +339,7 @@ uether_ifdetach(struct usb_ether *ue)
 uint8_t
 uether_is_gone(struct usb_ether *ue)
 {
-	return (usb_proc_is_gone(&ue->ue_tq));
+	return (usb_proc_is_gone_locked(&ue->ue_tq));
 }
 
 void

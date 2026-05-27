@@ -387,13 +387,13 @@ tr_setup:
 		}
 
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -832,20 +832,20 @@ ums_start_rx(struct ums_softc *sc)
 	if ((rate > 0) && (sc->sc_xfer[UMS_INTR_DT] != NULL)) {
 		DPRINTF("Setting pollrate = %d\n", rate);
 		/* Stop current transfer, if any */
-		usbd_transfer_stop(sc->sc_xfer[UMS_INTR_DT]);
+		usbd_transfer_stop_locked(sc->sc_xfer[UMS_INTR_DT]);
 		/* Set new interval */
 		usbd_xfer_set_interval(sc->sc_xfer[UMS_INTR_DT], 1000 / rate);
 		/* Only set pollrate once */
 		sc->sc_pollrate = 0;
 	}
 
-	usbd_transfer_start(sc->sc_xfer[UMS_INTR_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMS_INTR_DT]);
 }
 
 static void
 ums_stop_rx(struct ums_softc *sc)
 {
-	usbd_transfer_stop(sc->sc_xfer[UMS_INTR_DT]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMS_INTR_DT]);
 	usb_callout_stop(&sc->sc_callout);
 }
 

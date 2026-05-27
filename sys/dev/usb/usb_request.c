@@ -208,7 +208,7 @@ usbd_do_request_callback(struct usb_xfer *xfer, usb_error_t error)
 
 	switch (USB_GET_STATE(xfer)) {
 	case USB_ST_SETUP:
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		cv_signal(&xfer->xroot->udev->ctrlreq_cv);
@@ -259,7 +259,7 @@ tr_transferred:
 			usbd_clear_stall_locked(udev, ep);
 			for (x = 0; x != USB_MAX_EP_STREAMS; x++) {
 				/* start the current or next transfer, if any */
-				usb_command_wrapper(&ep->endpoint_q[x],
+				usb_command_wrapper_locked(&ep->endpoint_q[x],
 				    ep->endpoint_q[x].curr);
 			}
 		}
@@ -291,7 +291,7 @@ tr_setup:
 			xfer->nframes = 1;
 			USB_BUS_UNLOCK(udev->bus);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 
 			USB_BUS_LOCK(udev->bus);
 			break;
@@ -635,9 +635,9 @@ usbd_do_request_flags(struct usb_device *udev, struct mtx *mtx,
 			usbd_xfer_set_frames(xfer, 1);
 		}
 
-		usbd_transfer_start(xfer);
+		usbd_transfer_start_locked(xfer);
 
-		while (usbd_transfer_pending(xfer)) {
+		while (usbd_transfer_pending_locked(xfer)) {
 			cv_wait(&udev->ctrlreq_cv,
 			    xfer->xroot->xfer_mtx);
 		}
@@ -711,7 +711,7 @@ usbd_do_request_flags(struct usb_device *udev, struct mtx *mtx,
 		 * Make sure that the control endpoint is no longer
 		 * blocked in case of a non-transfer related error:
 		 */
-		usbd_transfer_stop(xfer);
+		usbd_transfer_stop_locked(xfer);
 	}
 	USB_XFER_UNLOCK(xfer);
 
@@ -759,7 +759,7 @@ usbd_do_request_proc(struct usb_device *udev, struct usb_process *pproc,
 	len = UGETW(req->wLength);
 
 	/* check if the device is being detached */
-	if (usb_proc_is_gone(pproc)) {
+	if (usb_proc_is_gone_locked(pproc)) {
 		err = USB_ERR_IOERROR;
 		goto done;
 	}

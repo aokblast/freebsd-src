@@ -566,7 +566,7 @@ upgt_init(struct upgt_softc *sc)
 	if (sc->sc_flags & UPGT_FLAG_INITDONE)
 		upgt_stop(sc);
 
-	usbd_transfer_start(sc->sc_xfer[UPGT_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UPGT_BULK_RX]);
 
 	(void)upgt_set_macfilter(sc, IEEE80211_S_SCAN);
 
@@ -1631,7 +1631,7 @@ upgt_fw_load(struct upgt_softc *sc)
 	upgt_bulk_tx(sc, data_cmd);
 
 	/* waiting 'OK' response.  */
-	usbd_transfer_start(sc->sc_xfer[UPGT_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UPGT_BULK_RX]);
 	error = mtx_sleep(sc, &sc->sc_mtx, 0, "upgtfw", 2 * hz);
 	if (error != 0) {
 		device_printf(sc->sc_dev, "firmware load failed\n");
@@ -1865,7 +1865,7 @@ upgt_bulk_tx(struct upgt_softc *sc, struct upgt_data *data)
 
 	STAILQ_INSERT_TAIL(&sc->sc_tx_pending, data, next);
 	UPGT_STAT_INC(sc, st_tx_pending);
-	usbd_transfer_start(sc->sc_xfer[UPGT_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UPGT_BULK_TX]);
 }
 
 static int
@@ -2010,7 +2010,7 @@ upgt_abort_xfers_locked(struct upgt_softc *sc)
 	UPGT_ASSERT_LOCKED(sc);
 	/* abort any pending transfers */
 	for (i = 0; i < UPGT_N_XFERS; i++)
-		usbd_transfer_stop(sc->sc_xfer[i]);
+		usbd_transfer_stop_locked(sc->sc_xfer[i]);
 }
 
 static void
@@ -2233,7 +2233,7 @@ setup:
 		STAILQ_REMOVE_HEAD(&sc->sc_rx_inactive, next);
 		STAILQ_INSERT_TAIL(&sc->sc_rx_active, data, next);
 		usbd_xfer_set_frame_data(xfer, 0, data->buf, MCLBYTES);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		/*
 		 * To avoid LOR we should unlock our private mutex here to call
@@ -2265,7 +2265,7 @@ setup:
 			STAILQ_INSERT_TAIL(&sc->sc_rx_inactive, data, next);
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			counter_u64_add(ic->ic_ierrors, 1);
 			goto setup;
 		}
@@ -2305,7 +2305,7 @@ setup:
 		UPGT_STAT_INC(sc, st_tx_active);
 
 		usbd_xfer_set_frame_data(xfer, 0, data->buf, data->buflen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		upgt_start(sc);
 		break;
 	default:
@@ -2319,7 +2319,7 @@ setup:
 			data->ni = NULL;
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto setup;
 		}
 		break;

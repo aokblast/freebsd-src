@@ -545,7 +545,7 @@ cdceem_bulk_read_callback(struct usb_xfer *xfer, usb_error_t usb_error)
 		CDCEEM_DEBUG(sc, "setup");
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(&sc->sc_ue);
 		break;
 
@@ -554,7 +554,7 @@ tr_setup:
 
 		if (usb_error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -743,7 +743,7 @@ tr_setup:
 		if (off > 0) {
 			CDCEEM_DEBUG(sc, "starting transfer, length %d", off);
 			usbd_xfer_set_frame_len(xfer, 0, off);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		} else {
 			CDCEEM_DEBUG(sc, "nothing to transfer");
 		}
@@ -758,7 +758,7 @@ tr_setup:
 
 		if (usb_error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -793,8 +793,8 @@ cdceem_start(struct usb_ether *ue)
 	/*
 	 * Start the USB transfers, if not already started.
 	 */
-	usbd_transfer_start(sc->sc_xfer[CDCEEM_BULK_RX]);
-	usbd_transfer_start(sc->sc_xfer[CDCEEM_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[CDCEEM_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[CDCEEM_BULK_TX]);
 }
 
 static void
@@ -820,7 +820,7 @@ cdceem_init(struct usb_ether *ue)
 	 * bit as it should, so set it in our host mode only.
 	 */
 	if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST)
-		usbd_xfer_set_stall(sc->sc_xfer[CDCEEM_BULK_TX]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[CDCEEM_BULK_TX]);
 
 	cdceem_start(ue);
 }
@@ -836,8 +836,8 @@ cdceem_stop(struct usb_ether *ue)
 
 	if_setdrvflagbits(ifp, 0, IFF_DRV_RUNNING);
 
-	usbd_transfer_stop(sc->sc_xfer[CDCEEM_BULK_RX]);
-	usbd_transfer_stop(sc->sc_xfer[CDCEEM_BULK_TX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[CDCEEM_BULK_RX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[CDCEEM_BULK_TX]);
 }
 
 static void

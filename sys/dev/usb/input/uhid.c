@@ -173,14 +173,14 @@ tr_setup:
 		if (usb_fifo_get_data(sc->sc_fifo.fp[USB_FIFO_TX], pc,
 		    0, usbd_xfer_max_len(xfer), &actlen, 0)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -229,14 +229,14 @@ re_submit:
 		if (usb_fifo_put_bytes_max(
 		    sc->sc_fifo.fp[USB_FIFO_RX]) != 0) {
 			usbd_xfer_set_frame_len(xfer, 0, sc->sc_isize);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto re_submit;
 		}
 		return;
@@ -316,7 +316,7 @@ uhid_write_callback(struct usb_xfer *xfer, usb_error_t error)
 			usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 			usbd_xfer_set_frame_len(xfer, 1, size);
 			usbd_xfer_set_frames(xfer, size ? 2 : 1);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -355,7 +355,7 @@ uhid_read_callback(struct usb_xfer *xfer, usb_error_t error)
 			usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 			usbd_xfer_set_frame_len(xfer, 1, sc->sc_isize);
 			usbd_xfer_set_frames(xfer, sc->sc_isize ? 2 : 1);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -410,9 +410,9 @@ uhid_start_read(struct usb_fifo *fifo)
 	struct uhid_softc *sc = usb_fifo_softc(fifo);
 
 	if (sc->sc_flags & UHID_FLAG_IMMED) {
-		usbd_transfer_start(sc->sc_xfer[UHID_CTRL_DT_RD]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHID_CTRL_DT_RD]);
 	} else {
-		usbd_transfer_start(sc->sc_xfer[UHID_INTR_DT_RD]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHID_INTR_DT_RD]);
 	}
 }
 
@@ -421,8 +421,8 @@ uhid_stop_read(struct usb_fifo *fifo)
 {
 	struct uhid_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[UHID_CTRL_DT_RD]);
-	usbd_transfer_stop(sc->sc_xfer[UHID_INTR_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UHID_CTRL_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UHID_INTR_DT_RD]);
 }
 
 static void
@@ -432,9 +432,9 @@ uhid_start_write(struct usb_fifo *fifo)
 
 	if ((sc->sc_flags & UHID_FLAG_IMMED) ||
 	    sc->sc_xfer[UHID_INTR_DT_WR] == NULL) {
-		usbd_transfer_start(sc->sc_xfer[UHID_CTRL_DT_WR]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHID_CTRL_DT_WR]);
 	} else {
-		usbd_transfer_start(sc->sc_xfer[UHID_INTR_DT_WR]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHID_INTR_DT_WR]);
 	}
 }
 
@@ -443,8 +443,8 @@ uhid_stop_write(struct usb_fifo *fifo)
 {
 	struct uhid_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[UHID_CTRL_DT_WR]);
-	usbd_transfer_stop(sc->sc_xfer[UHID_INTR_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UHID_CTRL_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UHID_INTR_DT_WR]);
 }
 
 static int

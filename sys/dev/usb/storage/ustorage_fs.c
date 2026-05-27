@@ -462,14 +462,14 @@ ustorage_fs_transfer_start(struct ustorage_fs_softc *sc, uint8_t xfer_index)
 {
 	if (sc->sc_xfer[xfer_index]) {
 		sc->sc_last_xfer_index = xfer_index;
-		usbd_transfer_start(sc->sc_xfer[xfer_index]);
+		usbd_transfer_start_locked(sc->sc_xfer[xfer_index]);
 	}
 }
 
 static void
 ustorage_fs_transfer_stop(struct ustorage_fs_softc *sc)
 {
-	usbd_transfer_stop(sc->sc_xfer[sc->sc_last_xfer_index]);
+	usbd_transfer_stop_locked(sc->sc_xfer[sc->sc_last_xfer_index]);
 	mtx_unlock(&sc->sc_mtx);
 	usbd_transfer_drain(sc->sc_xfer[sc->sc_last_xfer_index]);
 	mtx_lock(&sc->sc_mtx);
@@ -597,12 +597,12 @@ ustorage_fs_t_bbb_command_callback(struct usb_xfer *xfer, usb_error_t error)
 tr_setup:
 		if (sc->sc_transfer.data_error) {
 			sc->sc_transfer.data_error = 0;
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			DPRINTF("stall pipe\n");
 		}
 		usbd_xfer_set_frame_len(xfer, 0,
 		    sizeof(ustorage_fs_bbb_cbw_t));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -667,10 +667,10 @@ tr_setup:
 		}
 		if (sc->sc_transfer.data_error) {
 			sc->sc_transfer.data_error = 0;
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 		}
 		usbd_xfer_set_frame_len(xfer, 0, max_bulk);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -723,11 +723,11 @@ tr_setup:
 		}
 		if (sc->sc_transfer.data_error) {
 			sc->sc_transfer.data_error = 0;
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 		}
 
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_dma_ptr, max_bulk);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -779,14 +779,14 @@ tr_setup:
 
 		if (sc->sc_transfer.data_error) {
 			sc->sc_transfer.data_error = 0;
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 		}
 
 		/* XXX copy data to DMA buffer */
 		memcpy(sc->sc_dma_ptr, sc->sc_transfer.data_ptr, max_bulk);
 
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_dma_ptr, max_bulk);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -824,11 +824,11 @@ tr_setup:
 
 		if (sc->sc_transfer.data_error) {
 			sc->sc_transfer.data_error = 0;
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 		}
 		usbd_xfer_set_frame_len(xfer, 0,
 		    sizeof(ustorage_fs_bbb_csw_t));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:

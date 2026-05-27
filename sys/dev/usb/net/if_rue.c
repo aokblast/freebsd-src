@@ -658,13 +658,13 @@ rue_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -705,7 +705,7 @@ rue_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(ue);
 		return;
 
@@ -715,7 +715,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -776,7 +776,7 @@ tr_setup:
 
 		m_freem(m);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		return;
 
@@ -788,7 +788,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -820,9 +820,9 @@ rue_start(struct usb_ether *ue)
 	/*
 	 * start the USB transfers, if not already started:
 	 */
-	usbd_transfer_start(sc->sc_xfer[RUE_INTR_DT_RD]);
-	usbd_transfer_start(sc->sc_xfer[RUE_BULK_DT_RD]);
-	usbd_transfer_start(sc->sc_xfer[RUE_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUE_INTR_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUE_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUE_BULK_DT_WR]);
 }
 
 static void
@@ -857,7 +857,7 @@ rue_init(struct usb_ether *ue)
 	/* Enable RX and TX */
 	rue_csr_write_1(sc, RUE_CR, (RUE_CR_TE | RUE_CR_RE | RUE_CR_EP3CLREN));
 
-	usbd_xfer_set_stall(sc->sc_xfer[RUE_BULK_DT_WR]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[RUE_BULK_DT_WR]);
 
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 	rue_start(ue);
@@ -913,9 +913,9 @@ rue_stop(struct usb_ether *ue)
 	/*
 	 * stop all the transfers, if not already stopped:
 	 */
-	usbd_transfer_stop(sc->sc_xfer[RUE_BULK_DT_WR]);
-	usbd_transfer_stop(sc->sc_xfer[RUE_BULK_DT_RD]);
-	usbd_transfer_stop(sc->sc_xfer[RUE_INTR_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[RUE_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[RUE_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[RUE_INTR_DT_RD]);
 
 	rue_csr_write_1(sc, RUE_CR, 0x00);
 

@@ -612,13 +612,13 @@ ucom_command_barrier(struct ucom_softc *sc)
 
 	UCOM_MTX_ASSERT(sc, MA_OWNED);
 
-	if (usb_proc_is_gone(&ssc->sc_tq)) {
+	if (usb_proc_is_gone_locked(&ssc->sc_tq)) {
 		DPRINTF("proc is gone\n");
 		return (ENXIO);         /* nothing to do */
 	}
 
-	task = usb_proc_msignal(&ssc->sc_tq, &dummy, &dummy);
-	error = usb_proc_mwait_sig(&ssc->sc_tq, task, task);
+	task = usb_proc_msignal_locked(&ssc->sc_tq, &dummy, &dummy);
+	error = usb_proc_mwait_sig_locked(&ssc->sc_tq, task, task);
 	if (error == 0 && sc->sc_tty != NULL && tty_gone(sc->sc_tty))
 		error = ENXIO;
 	return (error);
@@ -635,7 +635,7 @@ ucom_queue_command(struct ucom_softc *sc,
 
 	UCOM_MTX_ASSERT(sc, MA_OWNED);
 
-	if (usb_proc_is_gone(&ssc->sc_tq)) {
+	if (usb_proc_is_gone_locked(&ssc->sc_tq)) {
 		DPRINTF("proc is gone\n");
 		return (ENXIO);         /* nothing to do */
 	}
@@ -645,7 +645,7 @@ ucom_queue_command(struct ucom_softc *sc,
 	 * structure after that the message got queued.
 	 */
 	task = (struct ucom_param_task *)
-	  usb_proc_msignal(&ssc->sc_tq, t0, t1);
+	  usb_proc_msignal_locked(&ssc->sc_tq, t0, t1);
 
 	/* Setup callback and softc pointers */
 	task->hdr.pm_callback = fn;
@@ -662,9 +662,9 @@ ucom_queue_command(struct ucom_softc *sc,
 	 * Closing or opening the device should be synchronous.
 	 */
 	if (wait) {
-		error = usb_proc_mwait_sig(&ssc->sc_tq, t0, t1);
+		error = usb_proc_mwait_sig_locked(&ssc->sc_tq, t0, t1);
 
-		/* usb_proc_mwait_sig may have dropped the tty lock. */
+		/* usb_proc_mwait_sig_locked may have dropped the tty lock. */
 		if (error == 0 && sc->sc_tty != NULL && tty_gone(sc->sc_tty))
 			error = ENXIO;
 	} else {
@@ -708,7 +708,7 @@ ucom_cfg_is_gone(struct ucom_softc *sc)
 {
 	struct ucom_super_softc *ssc = sc->sc_super;
 
-	return (usb_proc_is_gone(&ssc->sc_tq));
+	return (usb_proc_is_gone_locked(&ssc->sc_tq));
 }
 
 static void

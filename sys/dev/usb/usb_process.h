@@ -70,19 +70,19 @@ struct usb_process {
 
 /* prototypes */
 
-uint8_t	usb_proc_is_gone(struct usb_process *up);
+uint8_t	usb_proc_is_gone_locked(struct usb_process *up);
 int	usb_proc_create(struct usb_process *up, struct mtx *p_mtx,
 	    const char *pmesg, uint8_t prio);
 void	usb_proc_drain(struct usb_process *up);
-void	usb_proc_mwait(struct usb_process *up, void *pm0, void *pm1);
-int	usb_proc_mwait_sig(struct usb_process *up, void *pm0, void *pm1);
+void	usb_proc_mwait_locked(struct usb_process *up, void *pm0, void *pm1);
+int	usb_proc_mwait_sig_locked(struct usb_process *up, void *pm0, void *pm1);
 void	usb_proc_free(struct usb_process *up);
-void   *usb_proc_msignal(struct usb_process *up, void *pm0, void *pm1);
-void	usb_proc_rewakeup(struct usb_process *up);
+void   *usb_proc_msignal_locked(struct usb_process *up, void *pm0, void *pm1);
+void	usb_proc_rewakeup_locked(struct usb_process *up);
 int	usb_proc_is_called_from(struct usb_process *up);
 
-void	usb_proc_explore_mwait(struct usb_device *, void *, void *);
-void   *usb_proc_explore_msignal(struct usb_device *, void *, void *);
+void	usb_proc_explore_mwait_locked(struct usb_device *, void *, void *);
+void   *usb_proc_explore_msignal_locked(struct usb_device *, void *, void *);
 void	usb_proc_explore_lock(struct usb_device *);
 void	usb_proc_explore_unlock(struct usb_device *);
 

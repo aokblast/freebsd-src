@@ -944,7 +944,7 @@ atp_reset_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 		usbd_xfer_set_frame_len(xfer, 1, MODE_LENGTH);
 		usbd_xfer_set_frames(xfer, 2);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	case USB_ST_TRANSFERRED:
@@ -1057,7 +1057,7 @@ fg_interpret_sensor_data(struct atp_softc *sc, u_int data_len)
 			}
 
 			sc->sc_idlecount = 0;
-			usbd_transfer_start(sc->sc_xfer[ATP_RESET]);
+			usbd_transfer_start_locked(sc->sc_xfer[ATP_RESET]);
 		}
 	} else {
 		sc->sc_idlecount = 0;
@@ -2409,14 +2409,14 @@ atp_intr(struct usb_xfer *xfer, usb_error_t error)
 		if (usb_fifo_put_bytes_max(sc->sc_fifo.fp[USB_FIFO_RX]) != 0) {
 			usbd_xfer_set_frame_len(xfer, 0,
 			    sc->sc_expected_sensor_data_len);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
 	default:                        /* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2437,21 +2437,21 @@ atp_start_read(struct usb_fifo *fifo)
 	/* Check for set rate */
 	if ((rate > 0) && (sc->sc_xfer[ATP_INTR_DT] != NULL)) {
 		/* Stop current transfer, if any */
-		usbd_transfer_stop(sc->sc_xfer[ATP_INTR_DT]);
+		usbd_transfer_stop_locked(sc->sc_xfer[ATP_INTR_DT]);
 		/* Set new interval */
 		usbd_xfer_set_interval(sc->sc_xfer[ATP_INTR_DT], 1000 / rate);
 		/* Only set pollrate once */
 		sc->sc_pollrate = 0;
 	}
 
-	usbd_transfer_start(sc->sc_xfer[ATP_INTR_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[ATP_INTR_DT]);
 }
 
 static void
 atp_stop_read(struct usb_fifo *fifo)
 {
 	struct atp_softc *sc = usb_fifo_softc(fifo);
-	usbd_transfer_stop(sc->sc_xfer[ATP_INTR_DT]);
+	usbd_transfer_stop_locked(sc->sc_xfer[ATP_INTR_DT]);
 }
 
 static int

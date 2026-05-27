@@ -197,7 +197,7 @@ g_keyboard_timeout(void *arg)
 
 	DPRINTFN(11, "Timeout %p\n", sc->sc_xfer[G_KEYBOARD_INTR_DT]);
 
-	usbd_transfer_start(sc->sc_xfer[G_KEYBOARD_INTR_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_KEYBOARD_INTR_DT]);
 
 	g_keyboard_timeout_reset(sc);
 }
@@ -322,7 +322,7 @@ tr_setup:
 			usbd_xfer_set_frame_data(xfer, 0, &sc->sc_data[0], sizeof(sc->sc_data[0]));
 			usbd_xfer_set_frame_data(xfer, 1, &sc->sc_data[1], sizeof(sc->sc_data[1]));
 			usbd_xfer_set_frames(xfer, 2);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 
 		} else if (sc->sc_mode == G_KEYBOARD_MODE_PATTERN) {
 			memset(&sc->sc_data, 0, sizeof(sc->sc_data));
@@ -356,7 +356,7 @@ tr_setup:
 			usbd_xfer_set_frame_data(xfer, 0, &sc->sc_data[0], sizeof(sc->sc_data[0]));
 			usbd_xfer_set_frame_data(xfer, 1, &sc->sc_data[1], sizeof(sc->sc_data[1]));
 			usbd_xfer_set_frames(xfer, 2);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -365,7 +365,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

@@ -269,14 +269,14 @@ urio_write_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_TRANSFERRED:
 	case USB_ST_SETUP:
 		if (sc->sc_flags & URIO_FLAG_WRITE_STALL) {
-			usbd_transfer_start(sc->sc_xfer[URIO_T_WR_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[URIO_T_WR_CS]);
 			return;
 		}
 		pc = usbd_xfer_get_frame(xfer, 0);
 		if (usb_fifo_get_data(f, pc, 0,
 		    usbd_xfer_max_len(xfer), &actlen, 0)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -284,7 +284,7 @@ urio_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
 			sc->sc_flags |= URIO_FLAG_WRITE_STALL;
-			usbd_transfer_start(sc->sc_xfer[URIO_T_WR_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[URIO_T_WR_CS]);
 		}
 		return;
 	}
@@ -296,10 +296,10 @@ urio_write_clear_stall_callback(struct usb_xfer *xfer, usb_error_t error)
 	struct urio_softc *sc = usbd_xfer_softc(xfer);
 	struct usb_xfer *xfer_other = sc->sc_xfer[URIO_T_WR];
 
-	if (usbd_clear_stall_callback(xfer, xfer_other)) {
+	if (usbd_clear_stall_callback_locked(xfer, xfer_other)) {
 		DPRINTF("stall cleared\n");
 		sc->sc_flags &= ~URIO_FLAG_WRITE_STALL;
-		usbd_transfer_start(xfer_other);
+		usbd_transfer_start_locked(xfer_other);
 	}
 }
 
@@ -320,12 +320,12 @@ urio_read_callback(struct usb_xfer *xfer, usb_error_t error)
 
 	case USB_ST_SETUP:
 		if (sc->sc_flags & URIO_FLAG_READ_STALL) {
-			usbd_transfer_start(sc->sc_xfer[URIO_T_RD_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[URIO_T_RD_CS]);
 			return;
 		}
 		if (usb_fifo_put_bytes_max(f) != 0) {
 			usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -333,7 +333,7 @@ urio_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
 			sc->sc_flags |= URIO_FLAG_READ_STALL;
-			usbd_transfer_start(sc->sc_xfer[URIO_T_RD_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[URIO_T_RD_CS]);
 		}
 		return;
 	}
@@ -345,10 +345,10 @@ urio_read_clear_stall_callback(struct usb_xfer *xfer, usb_error_t error)
 	struct urio_softc *sc = usbd_xfer_softc(xfer);
 	struct usb_xfer *xfer_other = sc->sc_xfer[URIO_T_RD];
 
-	if (usbd_clear_stall_callback(xfer, xfer_other)) {
+	if (usbd_clear_stall_callback_locked(xfer, xfer_other)) {
 		DPRINTF("stall cleared\n");
 		sc->sc_flags &= ~URIO_FLAG_READ_STALL;
-		usbd_transfer_start(xfer_other);
+		usbd_transfer_start_locked(xfer_other);
 	}
 }
 
@@ -357,7 +357,7 @@ urio_start_read(struct usb_fifo *fifo)
 {
 	struct urio_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(sc->sc_xfer[URIO_T_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[URIO_T_RD]);
 }
 
 static void
@@ -365,8 +365,8 @@ urio_stop_read(struct usb_fifo *fifo)
 {
 	struct urio_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[URIO_T_RD_CS]);
-	usbd_transfer_stop(sc->sc_xfer[URIO_T_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[URIO_T_RD_CS]);
+	usbd_transfer_stop_locked(sc->sc_xfer[URIO_T_RD]);
 }
 
 static void
@@ -374,7 +374,7 @@ urio_start_write(struct usb_fifo *fifo)
 {
 	struct urio_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(sc->sc_xfer[URIO_T_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[URIO_T_WR]);
 }
 
 static void
@@ -382,8 +382,8 @@ urio_stop_write(struct usb_fifo *fifo)
 {
 	struct urio_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[URIO_T_WR_CS]);
-	usbd_transfer_stop(sc->sc_xfer[URIO_T_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[URIO_T_WR_CS]);
+	usbd_transfer_stop_locked(sc->sc_xfer[URIO_T_WR]);
 }
 
 static int

@@ -320,7 +320,7 @@ urndis_attach(device_t dev)
 
 	URNDIS_LOCK(sc);
 	/* start interrupt endpoint, if any */
-	usbd_transfer_start(sc->sc_xfer[URNDIS_INTR_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[URNDIS_INTR_RX]);
 	URNDIS_UNLOCK(sc);
 
 	return (0);			/* success */
@@ -358,8 +358,8 @@ urndis_start(struct usb_ether *ue)
 	/*
 	 * Start the USB transfers, if not already started:
 	 */
-	usbd_transfer_start(sc->sc_xfer[URNDIS_BULK_TX]);
-	usbd_transfer_start(sc->sc_xfer[URNDIS_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[URNDIS_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[URNDIS_BULK_RX]);
 }
 
 static void
@@ -373,7 +373,7 @@ urndis_init(struct usb_ether *ue)
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 
 	/* stall data write direction, which depends on USB mode */
-	usbd_xfer_set_stall(sc->sc_xfer[URNDIS_BULK_TX]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[URNDIS_BULK_TX]);
 
 	/* start data transfers */
 	urndis_start(ue);
@@ -392,8 +392,8 @@ urndis_stop(struct usb_ether *ue)
 	/*
 	 * stop all the transfers, if not already stopped:
 	 */
-	usbd_transfer_stop(sc->sc_xfer[URNDIS_BULK_RX]);
-	usbd_transfer_stop(sc->sc_xfer[URNDIS_BULK_TX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[URNDIS_BULK_RX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[URNDIS_BULK_TX]);
 }
 
 static void
@@ -922,7 +922,7 @@ urndis_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, RNDIS_RX_MAXLEN);
 		usbd_xfer_set_frames(xfer, 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(&sc->sc_ue);	/* must be last */
 		break;
 
@@ -931,9 +931,9 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			usbd_xfer_set_frames(xfer, 0);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 	}
@@ -1006,7 +1006,7 @@ next_pkt:
 		}
 		if (x != 0) {
 			usbd_xfer_set_frames(xfer, x);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -1018,7 +1018,7 @@ next_pkt:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -1043,13 +1043,13 @@ urndis_intr_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* start clear stall */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

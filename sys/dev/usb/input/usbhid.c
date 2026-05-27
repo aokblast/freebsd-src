@@ -168,7 +168,7 @@ tr_setup:
 		pc = usbd_xfer_get_frame(xfer, 0);
 		usbd_copy_in(pc, 0, xfer_ctx->buf, len);
 		usbd_xfer_set_frame_len(xfer, 0, len);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		xfer_ctx->req.intr.maxlen = 0;
 		if (USB_IN_POLLING_MODE_FUNC())
 			return;
@@ -178,7 +178,7 @@ tr_setup:
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		xfer_ctx->error = EIO;
@@ -209,13 +209,13 @@ usbhid_intr_in_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 re_submit:
 		usbd_xfer_set_frame_len(xfer, 0, xfer_ctx->req.intr.maxlen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto re_submit;
 		}
 		return;
@@ -244,7 +244,7 @@ usbhid_ctrl_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (len != 0)
 			usbd_xfer_set_frame_len(xfer, 1, len);
 		usbd_xfer_set_frames(xfer, len != 0 ? 2 : 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	case USB_ST_TRANSFERRED:
@@ -365,7 +365,7 @@ usbhid_intr_setup(device_t dev, device_t child __unused, hid_intr_t intr,
 		mtx_lock(&sc->sc_mtx);
 		if (sc->sc_xfer[USBHID_INTR_IN_DT] != NULL &&
 		    sc->sc_xfer[USBHID_INTR_IN_DT]->flags_int.started)
-			usbd_transfer_start(
+			usbd_transfer_start_locked(
 			    sc->sc_xfer[POLL_XFER(USBHID_INTR_IN_DT)]);
 		mtx_unlock(&sc->sc_mtx);
 		sc->sc_can_poll = true;
@@ -440,9 +440,9 @@ usbhid_intr_start(device_t dev, device_t child __unused)
 		.cb_ctx = sc,
 		.buf = sc->sc_intr_buf,
 	};
-	usbd_transfer_start(sc->sc_xfer[USBHID_INTR_IN_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[USBHID_INTR_IN_DT]);
 	if (sc->sc_can_poll)
-		usbd_transfer_start(sc->sc_xfer[POLL_XFER(USBHID_INTR_IN_DT)]);
+		usbd_transfer_start_locked(sc->sc_xfer[POLL_XFER(USBHID_INTR_IN_DT)]);
 	mtx_unlock(&sc->sc_mtx);
 
 	return (0);
@@ -502,7 +502,7 @@ usbhid_sync_xfer(struct usbhid_softc* sc, int xfer_idx,
 	xfer_ctx->cb = &usbhid_sync_wakeup_cb;
 	xfer_ctx->cb_ctx = xfer_ctx;
 	timeout = USB_DEFAULT_TIMEOUT;
-	usbd_transfer_start(sc->sc_xfer[xfer_idx]);
+	usbd_transfer_start_locked(sc->sc_xfer[xfer_idx]);
 
 	if (USB_IN_POLLING_MODE_FUNC())
 		while (timeout > 0 && xfer_ctx->error == ETIMEDOUT) {
@@ -518,7 +518,7 @@ usbhid_sync_xfer(struct usbhid_softc* sc, int xfer_idx,
 	if (USB_IN_POLLING_MODE_FUNC() || xfer_ctx->error != 0 ||
 	    sc->sc_config[xfer_idx].type != UE_INTERRUPT ||
 	    sc->sc_config[xfer_idx].direction != UE_DIR_OUT)
-		usbd_transfer_stop(sc->sc_xfer[xfer_idx]);
+		usbd_transfer_stop_locked(sc->sc_xfer[xfer_idx]);
 	error = xfer_ctx->error;
 	if (error == 0)
 		*req = xfer_ctx->req;

@@ -252,7 +252,7 @@ usb_proc_free(struct usb_process *up)
 }
 
 /*------------------------------------------------------------------------*
- *	usb_proc_msignal
+ *	usb_proc_msignal_locked
  *
  * This function will queue one of the passed USB process messages on
  * the USB process queue. The first message that is not already queued
@@ -263,7 +263,7 @@ usb_proc_free(struct usb_process *up)
  * at a time. The message that was queued is returned.
  *------------------------------------------------------------------------*/
 void   *
-usb_proc_msignal(struct usb_process *up, void *_pm0, void *_pm1)
+usb_proc_msignal_locked(struct usb_process *up, void *_pm0, void *_pm1)
 {
 	struct usb_proc_msg *pm0 = _pm0;
 	struct usb_proc_msg *pm1 = _pm1;
@@ -340,14 +340,14 @@ usb_proc_msignal(struct usb_process *up, void *_pm0, void *_pm1)
 }
 
 /*------------------------------------------------------------------------*
- *	usb_proc_is_gone
+ *	usb_proc_is_gone_locked
  *
  * Return values:
  *    0: USB process is running
  * Else: USB process is tearing down
  *------------------------------------------------------------------------*/
 uint8_t
-usb_proc_is_gone(struct usb_process *up)
+usb_proc_is_gone_locked(struct usb_process *up)
 {
 	if (up->up_gone)
 		return (1);
@@ -362,7 +362,7 @@ usb_proc_is_gone(struct usb_process *up)
 }
 
 static int
-usb_proc_mwait_impl(struct usb_process *up, void *_pm0, void *_pm1,
+usb_proc_mwait_impl_locked(struct usb_process *up, void *_pm0, void *_pm1,
     bool interruptible)
 {
 	struct usb_proc_msg *pm0 = _pm0;
@@ -414,32 +414,32 @@ usb_proc_mwait_impl(struct usb_process *up, void *_pm0, void *_pm1,
 }
 
 /*------------------------------------------------------------------------*
- *	usb_proc_mwait
+ *	usb_proc_mwait_locked
  *
  * This function will return when the USB process message pointed to
  * by "pm" is no longer on a queue. This function must be called
  * having "up->up_mtx" locked.
  *------------------------------------------------------------------------*/
 void
-usb_proc_mwait(struct usb_process *up, void *_pm0, void *_pm1)
+usb_proc_mwait_locked(struct usb_process *up, void *_pm0, void *_pm1)
 {
-
-	(void)usb_proc_mwait_impl(up, _pm0, _pm1, false);
+	USB_MTX_ASSERT(up->up_mtx, MA_OWNED);
+	(void)usb_proc_mwait_impl_locked(up, _pm0, _pm1, false);
 }
 
 /*------------------------------------------------------------------------*
- *	usb_proc_mwait_sig
+ *	usb_proc_mwait_sig_locked
  *
  * This function will return when the USB process message pointed to
  * by "pm" is no longer on a queue. This function must be called
- * having "up->up_mtx" locked. This version of usb_proc_mwait is
+ * having "up->up_mtx" locked. This version of usb_proc_mwait_locked is
  * interruptible.
  *------------------------------------------------------------------------*/
 int
-usb_proc_mwait_sig(struct usb_process *up, void *_pm0, void *_pm1)
+usb_proc_mwait_sig_locked(struct usb_process *up, void *_pm0, void *_pm1)
 {
-
-	return (usb_proc_mwait_impl(up, _pm0, _pm1, true));
+	USB_MTX_ASSERT(up->up_mtx, MA_OWNED);
+	return (usb_proc_mwait_impl_locked(up, _pm0, _pm1, true));
 }
 
 /*------------------------------------------------------------------------*
@@ -498,7 +498,7 @@ usb_proc_drain(struct usb_process *up)
 }
 
 /*------------------------------------------------------------------------*
- *	usb_proc_rewakeup
+ *	usb_proc_rewakeup_locked
  *
  * This function is called to re-wakeup the given USB
  * process. This usually happens after that the USB system has been in
@@ -506,7 +506,7 @@ usb_proc_drain(struct usb_process *up)
  * having "up->up_mtx" locked.
  *------------------------------------------------------------------------*/
 void
-usb_proc_rewakeup(struct usb_process *up)
+usb_proc_rewakeup_locked(struct usb_process *up)
 {
 	/* check if not initialised */
 	if (up->up_mtx == NULL)

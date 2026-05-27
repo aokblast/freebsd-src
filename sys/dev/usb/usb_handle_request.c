@@ -107,7 +107,7 @@ usb_handle_request_callback(struct usb_xfer *xfer, usb_error_t error)
 			}
 			goto tr_restart;
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:
@@ -133,8 +133,8 @@ tr_restart:
 	xfer->nframes = 1;
 	xfer->flags.manual_status = 1;
 	xfer->flags.force_short_xfer = 0;
-	usbd_xfer_set_stall(xfer);	/* cancel previous transfer, if any */
-	usbd_transfer_submit(xfer);
+	usbd_xfer_set_stall_locked(xfer);	/* cancel previous transfer, if any */
+	usbd_transfer_submit_locked(xfer);
 }
 
 /*------------------------------------------------------------------------*

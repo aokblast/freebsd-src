@@ -719,10 +719,10 @@ uath_cmdsend(struct uath_softc *sc, uint32_t code, const void *idata, int ilen,
 
 	STAILQ_INSERT_TAIL(&sc->sc_cmd_pending, cmd, next);
 	UATH_STAT_INC(sc, st_cmd_pending);
-	usbd_transfer_start(sc->sc_xfer[UATH_INTR_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UATH_INTR_TX]);
 
 	if (cmd->flags & UATH_CMD_FLAG_READ) {
-		usbd_transfer_start(sc->sc_xfer[UATH_INTR_RX]);
+		usbd_transfer_start_locked(sc->sc_xfer[UATH_INTR_RX]);
 
 		/* wait at most two seconds for command reply */
 		error = mtx_sleep(cmd, &sc->sc_mtx, 0, "uathcmd", 2 * hz);
@@ -1136,7 +1136,7 @@ uath_init(struct uath_softc *sc)
 	/* XXX? check */
 	uath_cmd_write(sc, WDCMSG_RESET_KEY_CACHE, NULL, 0, 0);
 
-	usbd_transfer_start(sc->sc_xfer[UATH_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UATH_BULK_RX]);
 	/* enable Rx */
 	uath_set_rxfilter(sc, 0x0, UATH_FILTER_OP_INIT);
 	uath_set_rxfilter(sc,
@@ -1299,7 +1299,7 @@ uath_abort_xfers(struct uath_softc *sc)
 	UATH_ASSERT_LOCKED(sc);
 	/* abort any pending transfers */
 	for (i = 0; i < UATH_N_XFERS; i++)
-		usbd_transfer_stop(sc->sc_xfer[i]);
+		usbd_transfer_stop_locked(sc->sc_xfer[i]);
 }
 
 static int
@@ -1369,7 +1369,7 @@ uath_dataflush(struct uath_softc *sc)
 	STAILQ_INSERT_TAIL(&sc->sc_tx_pending, data, next);
 	UATH_STAT_INC(sc, st_tx_pending);
 	sc->sc_tx_timer = 5;
-	usbd_transfer_start(sc->sc_xfer[UATH_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UATH_BULK_TX]);
 
 	return (0);
 }
@@ -1622,7 +1622,7 @@ uath_tx_start(struct uath_softc *sc, struct mbuf *m0, struct ieee80211_node *ni,
 
 	STAILQ_INSERT_TAIL(&sc->sc_tx_pending, data, next);
 	UATH_STAT_INC(sc, st_tx_pending);
-	usbd_transfer_start(sc->sc_xfer[UATH_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UATH_BULK_TX]);
 
 	return (0);
 }
@@ -2386,11 +2386,11 @@ uath_intr_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto setup;
 		}
 		break;
@@ -2437,11 +2437,11 @@ setup:
 			UATH_STAT_INC(sc, st_cmd_active);
 
 		usbd_xfer_set_frame_data(xfer, 0, cmd->buf, cmd->buflen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto setup;
 		}
 		break;
@@ -2748,7 +2748,7 @@ setup:
 		STAILQ_INSERT_TAIL(&sc->sc_rx_active, data, next);
 		UATH_STAT_INC(sc, st_rx_active);
 		usbd_xfer_set_frame_data(xfer, 0, data->buf, MCLBYTES);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		/*
 		 * To avoid LOR we should unlock our private mutex here to call
@@ -2790,7 +2790,7 @@ setup:
 			UATH_STAT_INC(sc, st_rx_inactive);
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			counter_u64_add(ic->ic_ierrors, 1);
 			goto setup;
 		}
@@ -2847,7 +2847,7 @@ setup:
 		UATH_STAT_INC(sc, st_tx_active);
 
 		usbd_xfer_set_frame_data(xfer, 0, data->buf, data->buflen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		uath_start(sc);
 		break;
@@ -2863,7 +2863,7 @@ setup:
 			data->ni = NULL;
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto setup;
 		}
 		break;

@@ -557,7 +557,7 @@ kue_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(ue);
 		return;
 
@@ -567,7 +567,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -622,7 +622,7 @@ tr_setup:
 
 		m_freem(m);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		return;
 
@@ -634,7 +634,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -649,8 +649,8 @@ kue_start(struct usb_ether *ue)
 	/*
 	 * start the USB transfers, if not already started:
 	 */
-	usbd_transfer_start(sc->sc_xfer[KUE_BULK_DT_RD]);
-	usbd_transfer_start(sc->sc_xfer[KUE_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[KUE_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[KUE_BULK_DT_WR]);
 }
 
 static void
@@ -678,7 +678,7 @@ kue_init(struct usb_ether *ue)
 	/* load the multicast filter */
 	kue_setpromisc(ue);
 
-	usbd_xfer_set_stall(sc->sc_xfer[KUE_BULK_DT_WR]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[KUE_BULK_DT_WR]);
 
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 	kue_start(ue);
@@ -697,6 +697,6 @@ kue_stop(struct usb_ether *ue)
 	/*
 	 * stop all the transfers, if not already stopped:
 	 */
-	usbd_transfer_stop(sc->sc_xfer[KUE_BULK_DT_WR]);
-	usbd_transfer_stop(sc->sc_xfer[KUE_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[KUE_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[KUE_BULK_DT_RD]);
 }

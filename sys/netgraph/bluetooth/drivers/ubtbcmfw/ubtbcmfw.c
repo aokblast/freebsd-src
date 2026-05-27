@@ -280,14 +280,14 @@ setup_next:
 		if (usb_fifo_get_data(f, pc, 0, usbd_xfer_max_len(xfer),
 			    &actlen, 0)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
 	default: /* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto setup_next;
 		}
 		break;
@@ -318,14 +318,14 @@ ubtbcmfw_read_callback(struct usb_xfer *xfer, usb_error_t error)
 setup_next:
 		if (usb_fifo_put_bytes_max(fifo) > 0) {
 			usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
 	default: /* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto setup_next;
 		}
 		break;
@@ -341,7 +341,7 @@ ubtbcmfw_start_read(struct usb_fifo *fifo)
 {
 	struct ubtbcmfw_softc	*sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(sc->sc_xfer[UBTBCMFW_INTR_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UBTBCMFW_INTR_DT_RD]);
 } /* ubtbcmfw_start_read */
 
 /*
@@ -353,7 +353,7 @@ ubtbcmfw_stop_read(struct usb_fifo *fifo)
 {
 	struct ubtbcmfw_softc	*sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[UBTBCMFW_INTR_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UBTBCMFW_INTR_DT_RD]);
 } /* ubtbcmfw_stop_read */
 
 /*
@@ -366,7 +366,7 @@ ubtbcmfw_start_write(struct usb_fifo *fifo)
 {
 	struct ubtbcmfw_softc	*sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(sc->sc_xfer[UBTBCMFW_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[UBTBCMFW_BULK_DT_WR]);
 } /* ubtbcmfw_start_write */
 
 /*
@@ -378,7 +378,7 @@ ubtbcmfw_stop_write(struct usb_fifo *fifo)
 {
 	struct ubtbcmfw_softc	*sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[UBTBCMFW_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UBTBCMFW_BULK_DT_WR]);
 } /* ubtbcmfw_stop_write */
 
 /*

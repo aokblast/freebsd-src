@@ -1274,7 +1274,7 @@ uaudio_detach(device_t dev)
 		sc->sc_play_chan[i].operation = CHAN_OP_DRAIN;
 		sc->sc_rec_chan[i].operation = CHAN_OP_DRAIN;
 	}
-	usb_proc_explore_mwait(sc->sc_udev,
+	usb_proc_explore_mwait_locked(sc->sc_udev,
 	    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
 	usb_proc_explore_unlock(sc->sc_udev);
 
@@ -1532,8 +1532,8 @@ uaudio_configure_msg_sub(struct uaudio_softc *sc,
 
 	mtx_lock(&chan->lock);
 	chan->cur_alt = next_alt;
-	usbd_transfer_start(chan->xfer[0]);
-	usbd_transfer_start(chan->xfer[1]);
+	usbd_transfer_start_locked(chan->xfer[0]);
+	usbd_transfer_start_locked(chan->xfer[1]);
 	mtx_unlock(&chan->lock);
 	return;
 error:
@@ -2343,7 +2343,7 @@ uaudio_chan_play_sync_callback(struct usb_xfer *xfer, usb_error_t error)
 			break;
 		usbd_xfer_set_frames(xfer, 1);
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_framelen(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -2455,7 +2455,7 @@ tr_setup:
 		ch->intr_counter += ch->intr_frames;
 		if (ch->intr_counter >= ch->frames_per_second) {
 			ch->intr_counter -= ch->frames_per_second;
-			usbd_transfer_start(ch->xfer[UAUDIO_NCHANBUFS]);
+			usbd_transfer_start_locked(ch->xfer[UAUDIO_NCHANBUFS]);
 		}
 
 		mfl = usbd_xfer_max_framelen(xfer);
@@ -2526,7 +2526,7 @@ tr_setup:
 			if (ch->cur >= ch->end)
 				ch->cur = ch->start;
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -2646,7 +2646,7 @@ tr_setup:
 		for (n = 0; n != nframes; n++)
 			usbd_xfer_set_frame_len(xfer, n, mfl);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -2834,7 +2834,7 @@ uaudio_chan_reconfigure(struct uaudio_chan *ch, uint8_t operation)
 	 * configuration, this part must be executed from the USB
 	 * explore process.
 	 */
-	(void)usb_proc_explore_msignal(sc->sc_udev,
+	(void)usb_proc_explore_msignal_locked(sc->sc_udev,
 	    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
 }
 
@@ -2987,7 +2987,7 @@ found:
 		pmc->update[(chan / 8)] |= (1 << (chan % 8));
 
 		/* start the transfer, if not already started */
-		usbd_transfer_start(sc->sc_mixer_xfer[0]);
+		usbd_transfer_start_locked(sc->sc_mixer_xfer[0]);
 	}
 	mtx_unlock(sc->sc_child[0].mixer_lock);
 
@@ -3231,10 +3231,10 @@ uaudio_mixer_reload_all(struct uaudio_softc *sc)
 		for (chan = 0; chan < pmc->nchan; chan++)
 			pmc->update[chan / 8] |= (1 << (chan % 8));
 	}
-	usbd_transfer_start(sc->sc_mixer_xfer[0]);
+	usbd_transfer_start_locked(sc->sc_mixer_xfer[0]);
 
 	/* start HID volume keys, if any */
-	usbd_transfer_start(sc->sc_hid.xfer[0]);
+	usbd_transfer_start_locked(sc->sc_hid.xfer[0]);
 	mtx_unlock(sc->sc_child[0].mixer_lock);
 }
 
@@ -5287,7 +5287,7 @@ tr_setup:
 					usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 					usbd_xfer_set_frame_len(xfer, 1, len);
 					usbd_xfer_set_frames(xfer, len ? 2 : 1);
-					usbd_transfer_submit(xfer);
+					usbd_transfer_submit_locked(xfer);
 					return;
 				}
 			}
@@ -5402,7 +5402,7 @@ uaudio_mixer_ctl_set(struct uaudio_softc *sc, struct uaudio_mixer_node *mc,
 
 	/* start the transfer, if not already started */
 
-	usbd_transfer_start(sc->sc_mixer_xfer[0]);
+	usbd_transfer_start_locked(sc->sc_mixer_xfer[0]);
 }
 
 static void
@@ -5591,7 +5591,7 @@ umidi_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		DPRINTF("start\n");
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:
@@ -5599,7 +5599,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -5819,7 +5819,7 @@ tr_setup:
 		if (nframes != 0) {
 			DPRINTF("Transferring %d frames\n", (int)nframes);
 			usbd_xfer_set_frame_len(xfer, 0, 4 * nframes);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -5829,7 +5829,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -5862,7 +5862,7 @@ umidi_start_read(struct usb_fifo *fifo)
 {
 	struct umidi_chan *chan = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(chan->xfer[UMIDI_RX_TRANSFER]);
+	usbd_transfer_start_locked(chan->xfer[UMIDI_RX_TRANSFER]);
 }
 
 static void
@@ -5897,7 +5897,7 @@ umidi_start_write(struct usb_fifo *fifo)
 			usb_fifo_get_data_linear(fifo, buf, 1, &actlen, 0);
 		} while (actlen > 0);
 	} else {
-		usbd_transfer_start(chan->xfer[UMIDI_TX_TRANSFER]);
+		usbd_transfer_start_locked(chan->xfer[UMIDI_TX_TRANSFER]);
 	}
 }
 
@@ -5913,7 +5913,7 @@ umidi_stop_write(struct usb_fifo *fifo)
 
 	if (--(chan->write_open_refcount) == 0) {
 		DPRINTF("(stopping write transfer)\n");
-		usbd_transfer_stop(chan->xfer[UMIDI_TX_TRANSFER]);
+		usbd_transfer_stop_locked(chan->xfer[UMIDI_TX_TRANSFER]);
 	}
 }
 
@@ -6067,7 +6067,7 @@ umidi_attach(device_t dev)
 	 * about that the internal queues of the device overflow if we
 	 * don't read them regularly.
 	 */
-	usbd_transfer_start(chan->xfer[UMIDI_RX_TRANSFER]);
+	usbd_transfer_start_locked(chan->xfer[UMIDI_RX_TRANSFER]);
 
 	mtx_unlock(&chan->mtx);
 
@@ -6089,7 +6089,7 @@ umidi_detach(device_t dev)
 
 	mtx_lock(&chan->mtx);
 
-	usbd_transfer_stop(chan->xfer[UMIDI_RX_TRANSFER]);
+	usbd_transfer_stop_locked(chan->xfer[UMIDI_RX_TRANSFER]);
 
 	mtx_unlock(&chan->mtx);
 
@@ -6157,7 +6157,7 @@ uaudio_hid_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 tr_setup:
 		/* check if we can put more data into the FIFO */
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -6166,7 +6166,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

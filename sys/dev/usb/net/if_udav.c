@@ -461,7 +461,7 @@ udav_init(struct usb_ether *ue)
 	UDAV_SETBIT(sc, UDAV_GPCR, UDAV_GPCR_GEP_CNTL0);
 	UDAV_CLRBIT(sc, UDAV_GPR, UDAV_GPR_GEPIO0);
 
-	usbd_xfer_set_stall(sc->sc_xfer[UDAV_BULK_DT_WR]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[UDAV_BULK_DT_WR]);
 
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 	udav_start(ue);
@@ -566,9 +566,9 @@ udav_start(struct usb_ether *ue)
 	/*
 	 * start the USB transfers, if not already started:
 	 */
-	usbd_transfer_start(sc->sc_xfer[UDAV_INTR_DT_RD]);
-	usbd_transfer_start(sc->sc_xfer[UDAV_BULK_DT_RD]);
-	usbd_transfer_start(sc->sc_xfer[UDAV_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[UDAV_INTR_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UDAV_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UDAV_BULK_DT_WR]);
 }
 
 static void
@@ -634,7 +634,7 @@ tr_setup:
 		m_freem(m);
 
 		usbd_xfer_set_frame_len(xfer, 0, temp_len);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
@@ -645,7 +645,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -691,7 +691,7 @@ udav_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(ue);
 		return;
 
@@ -701,7 +701,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -716,13 +716,13 @@ udav_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -744,9 +744,9 @@ udav_stop(struct usb_ether *ue)
 	/*
 	 * stop all the transfers, if not already stopped:
 	 */
-	usbd_transfer_stop(sc->sc_xfer[UDAV_BULK_DT_WR]);
-	usbd_transfer_stop(sc->sc_xfer[UDAV_BULK_DT_RD]);
-	usbd_transfer_stop(sc->sc_xfer[UDAV_INTR_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UDAV_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UDAV_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UDAV_INTR_DT_RD]);
 
 	udav_reset(sc);
 }

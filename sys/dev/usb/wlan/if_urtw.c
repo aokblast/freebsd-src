@@ -1091,7 +1091,7 @@ urtw_init(struct urtw_softc *sc)
 		goto fail;
 
 	if (sc->sc_flags & URTW_RTL8187B)
-		usbd_transfer_start(sc->sc_xfer[URTW_8187B_BULK_TX_STATUS]);
+		usbd_transfer_start_locked(sc->sc_xfer[URTW_8187B_BULK_TX_STATUS]);
 
 	sc->sc_flags |= URTW_RUNNING;
 
@@ -1388,7 +1388,7 @@ urtw_abort_xfers(struct urtw_softc *sc)
 
 	/* abort any pending transfers */
 	for (i = 0; i < max; i++)
-		usbd_transfer_stop(sc->sc_xfer[i]);
+		usbd_transfer_stop_locked(sc->sc_xfer[i]);
 }
 
 static void
@@ -1850,7 +1850,7 @@ urtw_tx_start(struct urtw_softc *sc, struct ieee80211_node *ni, struct mbuf *m0,
 		    sc->sc_xfer[URTW_8187L_BULK_TX_NORMAL];
 
 	STAILQ_INSERT_TAIL(&sc->sc_tx_pending, data, next);
-	usbd_transfer_start(xfer);
+	usbd_transfer_start_locked(xfer);
 
 	error = urtw_led_ctl(sc, URTW_LED_CTL_TX);
 	if (error != 0)
@@ -3830,7 +3830,7 @@ urtw_rx_enable(struct urtw_softc *sc)
 	uint8_t data;
 	usb_error_t error;
 
-	usbd_transfer_start((sc->sc_flags & URTW_RTL8187B) ?
+	usbd_transfer_start_locked((sc->sc_flags & URTW_RTL8187B) ?
 	    sc->sc_xfer[URTW_8187B_BULK_RX] : sc->sc_xfer[URTW_8187L_BULK_RX]);
 
 	error = urtw_rx_setconf(sc);
@@ -4069,7 +4069,7 @@ setup:
 		STAILQ_INSERT_TAIL(&sc->sc_rx_active, data, next);
 		usbd_xfer_set_frame_data(xfer, 0, data->buf,
 		    usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		/*
 		 * To avoid LOR we should unlock our private mutex here to call
@@ -4103,7 +4103,7 @@ setup:
 			STAILQ_INSERT_TAIL(&sc->sc_rx_inactive, data, next);
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			counter_u64_add(ic->ic_ierrors, 1);
 			goto setup;
 		}
@@ -4155,11 +4155,11 @@ urtw_bulk_tx_status_callback(struct usb_xfer *xfer, usb_error_t error)
 setup:
 		memcpy(dma_buf, &sc->sc_txstatus, sizeof(uint64_t));
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(uint64_t));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			counter_u64_add(ic->ic_ierrors, 1);
 			goto setup;
 		}
@@ -4212,7 +4212,7 @@ setup:
 		STAILQ_INSERT_TAIL(&sc->sc_tx_active, data, next);
 
 		usbd_xfer_set_frame_data(xfer, 0, data->buf, data->buflen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		urtw_start(sc);
 		break;
@@ -4227,7 +4227,7 @@ setup:
 			data->ni = NULL;
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto setup;
 		}
 		break;

@@ -817,13 +817,13 @@ mos_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(ue);
 		return;
 	default:
 		MOS_DPRINTFN("bulk read error, %s", usbd_errstr(error));
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		MOS_DPRINTFN("start rx %i", usbd_xfer_max_len(xfer));
@@ -870,7 +870,7 @@ tr_setup:
 
 		m_freem(m);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		if_inc_counter(ifp, IFCOUNTER_OPACKETS, 1);
 		return;
@@ -878,7 +878,7 @@ tr_setup:
 		MOS_DPRINTFN("usb error on tx: %s\n", usbd_errstr(error));
 		if_inc_counter(ifp, IFCOUNTER_OERRORS, 1);
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -910,9 +910,9 @@ mos_start(struct usb_ether *ue)
 	/*
 	 * start the USB transfers, if not already started:
 	 */
-	usbd_transfer_start(sc->sc_xfer[MOS_ENDPT_TX]);
-	usbd_transfer_start(sc->sc_xfer[MOS_ENDPT_RX]);
-	usbd_transfer_start(sc->sc_xfer[MOS_ENDPT_INTR]);
+	usbd_transfer_start_locked(sc->sc_xfer[MOS_ENDPT_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[MOS_ENDPT_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[MOS_ENDPT_INTR]);
 }
 
 static void
@@ -981,7 +981,7 @@ tr_setup:
 		return;
 	default:
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1004,9 +1004,9 @@ mos_stop(struct usb_ether *ue)
 	if_setdrvflagbits(ifp, 0, IFF_DRV_RUNNING);
 
 	/* stop all the transfers, if not already stopped */
-	usbd_transfer_stop(sc->sc_xfer[MOS_ENDPT_TX]);
-	usbd_transfer_stop(sc->sc_xfer[MOS_ENDPT_RX]);
-	usbd_transfer_stop(sc->sc_xfer[MOS_ENDPT_INTR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[MOS_ENDPT_TX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[MOS_ENDPT_RX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[MOS_ENDPT_INTR]);
 
 	sc->mos_link = 0;
 }

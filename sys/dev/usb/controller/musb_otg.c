@@ -126,11 +126,11 @@ static musbotg_cmd_t musbotg_dev_data_tx;
 static musbotg_cmd_t musbotg_host_data_rx;
 static musbotg_cmd_t musbotg_host_data_tx;
 
-static void	musbotg_device_done(struct usb_xfer *, usb_error_t);
+static void	musbotg_device_done_locked(struct usb_xfer *, usb_error_t);
 static void	musbotg_do_poll(struct usb_bus *);
 static void	musbotg_standard_done(struct usb_xfer *);
 static void	musbotg_interrupt_poll(struct musbotg_softc *);
-static void	musbotg_root_intr(struct musbotg_softc *);
+static void	musbotg_root_intr_locked(struct musbotg_softc *);
 static int	musbotg_channel_alloc(struct musbotg_softc *, struct musbotg_td *td, uint8_t);
 static void	musbotg_channel_free(struct musbotg_softc *, struct musbotg_td *td);
 static void	musbotg_ep_int_set(struct musbotg_softc *sc, int channel, int on);
@@ -2190,7 +2190,7 @@ musbotg_vbus_interrupt(struct musbotg_softc *sc, uint8_t is_on)
 			sc->sc_flags.status_vbus = 1;
 
 			/* complete root HUB interrupt endpoint */
-			musbotg_root_intr(sc);
+			musbotg_root_intr_locked(sc);
 		}
 	} else {
 		if (sc->sc_flags.status_vbus) {
@@ -2201,7 +2201,7 @@ musbotg_vbus_interrupt(struct musbotg_softc *sc, uint8_t is_on)
 			sc->sc_flags.change_connect = 1;
 
 			/* complete root HUB interrupt endpoint */
-			musbotg_root_intr(sc);
+			musbotg_root_intr_locked(sc);
 		}
 	}
 
@@ -2215,7 +2215,7 @@ musbotg_connect_interrupt(struct musbotg_softc *sc)
 	sc->sc_flags.change_connect = 1;
 
 	/* complete root HUB interrupt endpoint */
-	musbotg_root_intr(sc);
+	musbotg_root_intr_locked(sc);
 	USB_BUS_UNLOCK(&sc->sc_bus);
 }
 
@@ -2336,7 +2336,7 @@ repeat:
 		}
 
 		/* complete root HUB interrupt endpoint */
-		musbotg_root_intr(sc);
+		musbotg_root_intr_locked(sc);
 	}
 	/* check for any endpoint interrupts */
 
@@ -2599,7 +2599,7 @@ musbotg_setup_standard_chain(struct usb_xfer *xfer)
 }
 
 static void
-musbotg_timeout(void *arg)
+musbotg_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -2608,7 +2608,7 @@ musbotg_timeout(void *arg)
 	USB_BUS_LOCK_ASSERT(xfer->xroot->bus, MA_OWNED);
 
 	/* transfer is transferred */
-	musbotg_device_done(xfer, USB_ERR_TIMEOUT);
+	musbotg_device_done_locked(xfer, USB_ERR_TIMEOUT);
 }
 
 static void
@@ -2664,18 +2664,18 @@ musbotg_start_standard_chain(struct usb_xfer *xfer)
 		DPRINTFN(14, "enabled interrupts on endpoint\n");
 
 		/* put transfer on interrupt queue */
-		usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+		usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 		/* start timeout, if any */
 		if (xfer->timeout != 0) {
-			usbd_transfer_timeout_ms(xfer,
-			    &musbotg_timeout, xfer->timeout);
+			usbd_transfer_timeout_ms_locked(xfer,
+			    &musbotg_timeout_locked, xfer->timeout);
 		}
 	}
 }
 
 static void
-musbotg_root_intr(struct musbotg_softc *sc)
+musbotg_root_intr_locked(struct musbotg_softc *sc)
 {
 	DPRINTFN(8, "\n");
 
@@ -2684,7 +2684,7 @@ musbotg_root_intr(struct musbotg_softc *sc)
 	/* set port bit */
 	sc->sc_hub_idata[0] = 0x02;	/* we only have one port */
 
-	uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+	uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 	    sizeof(sc->sc_hub_idata));
 }
 
@@ -2791,17 +2791,17 @@ musbotg_standard_done(struct usb_xfer *xfer)
 		err = musbotg_standard_done_sub(xfer);
 	}
 done:
-	musbotg_device_done(xfer, err);
+	musbotg_device_done_locked(xfer, err);
 }
 
 /*------------------------------------------------------------------------*
- *	musbotg_device_done
+ *	musbotg_device_done_locked
  *
  * NOTE: this function can be called more than one time on the
  * same USB transfer!
  *------------------------------------------------------------------------*/
 static void
-musbotg_device_done(struct usb_xfer *xfer, usb_error_t error)
+musbotg_device_done_locked(struct usb_xfer *xfer, usb_error_t error)
 {
 	struct musbotg_td *td;
 	struct musbotg_softc *sc;
@@ -2820,17 +2820,17 @@ musbotg_device_done(struct usb_xfer *xfer, usb_error_t error)
 		musbotg_channel_free(sc, td);
 
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 }
 
 static void
 musbotg_xfer_stall(struct usb_xfer *xfer)
 {
-	musbotg_device_done(xfer, USB_ERR_STALLED);
+	musbotg_device_done_locked(xfer, USB_ERR_STALLED);
 }
 
 static void
-musbotg_set_stall(struct usb_device *udev,
+musbotg_set_stall_locked(struct usb_device *udev,
     struct usb_endpoint *ep, uint8_t *did_stall)
 {
 	struct musbotg_softc *sc;
@@ -3007,7 +3007,7 @@ musbotg_clear_stall_sub(struct musbotg_softc *sc, uint16_t wMaxPacket,
 }
 
 static void
-musbotg_clear_stall(struct usb_device *udev, struct usb_endpoint *ep)
+musbotg_clear_stall_locked(struct usb_device *udev, struct usb_endpoint *ep)
 {
 	struct musbotg_softc *sc;
 	struct usb_endpoint_descriptor *ed;
@@ -3313,7 +3313,7 @@ musbotg_device_bulk_open(struct usb_xfer *xfer)
 static void
 musbotg_device_bulk_close(struct usb_xfer *xfer)
 {
-	musbotg_device_done(xfer, USB_ERR_CANCELLED);
+	musbotg_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -3350,7 +3350,7 @@ musbotg_device_ctrl_open(struct usb_xfer *xfer)
 static void
 musbotg_device_ctrl_close(struct usb_xfer *xfer)
 {
-	musbotg_device_done(xfer, USB_ERR_CANCELLED);
+	musbotg_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -3387,7 +3387,7 @@ musbotg_device_intr_open(struct usb_xfer *xfer)
 static void
 musbotg_device_intr_close(struct usb_xfer *xfer)
 {
-	musbotg_device_done(xfer, USB_ERR_CANCELLED);
+	musbotg_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -3424,7 +3424,7 @@ musbotg_device_isoc_open(struct usb_xfer *xfer)
 static void
 musbotg_device_isoc_close(struct usb_xfer *xfer)
 {
-	musbotg_device_done(xfer, USB_ERR_CANCELLED);
+	musbotg_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -3544,7 +3544,7 @@ USB_MAKE_STRING_DESC(STRING_VENDOR, musbotg_vendor);
 USB_MAKE_STRING_DESC(STRING_PRODUCT, musbotg_product);
 
 static usb_error_t
-musbotg_roothub_exec(struct usb_device *udev,
+musbotg_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	struct musbotg_softc *sc = MUSBOTG_BUS2SC(udev->bus);
@@ -4180,9 +4180,9 @@ static const struct usb_bus_methods musbotg_bus_methods =
 	.xfer_unsetup = &musbotg_xfer_unsetup,
 	.get_hw_ep_profile = &musbotg_get_hw_ep_profile,
 	.xfer_stall = &musbotg_xfer_stall,
-	.set_stall = &musbotg_set_stall,
-	.clear_stall = &musbotg_clear_stall,
-	.roothub_exec = &musbotg_roothub_exec,
+	.set_stall = &musbotg_set_stall_locked,
+	.clear_stall = &musbotg_clear_stall_locked,
+	.roothub_exec = &musbotg_roothub_exec_locked,
 	.xfer_poll = &musbotg_do_poll,
 	.set_hw_power_sleep = &musbotg_set_hw_power_sleep,
 };

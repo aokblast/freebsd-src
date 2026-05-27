@@ -154,13 +154,13 @@ static const struct usb_pipe_methods uhci_device_ctrl_methods;
 static const struct usb_pipe_methods uhci_device_intr_methods;
 static const struct usb_pipe_methods uhci_device_isoc_methods;
 
-static uint8_t	uhci_restart(uhci_softc_t *sc);
+static uint8_t	uhci_restart_locked(uhci_softc_t *sc);
 static void	uhci_do_poll(struct usb_bus *);
-static void	uhci_device_done(struct usb_xfer *, usb_error_t);
+static void	uhci_device_done_locked(struct usb_xfer *, usb_error_t);
 static void	uhci_transfer_intr_enqueue(struct usb_xfer *);
-static void	uhci_timeout(void *);
+static void	uhci_timeout_locked(void *);
 static uint8_t	uhci_check_transfer(struct usb_xfer *);
-static void	uhci_root_intr(uhci_softc_t *sc);
+static void	uhci_root_intr_locked(uhci_softc_t *sc);
 
 void
 uhci_iterate_hw_softc(struct usb_bus *bus, usb_bus_mem_sub_cb_t *cb)
@@ -273,7 +273,7 @@ uhci_mem_layout_fixup(struct uhci_mem_layout *ml, struct uhci_td *td)
  * Else: Failure
  */
 static uint8_t
-uhci_restart(uhci_softc_t *sc)
+uhci_restart_locked(uhci_softc_t *sc)
 {
 	struct usb_page_search buf_res;
 
@@ -310,7 +310,7 @@ uhci_restart(uhci_softc_t *sc)
 }
 
 void
-uhci_reset(uhci_softc_t *sc)
+uhci_reset_locked(uhci_softc_t *sc)
 {
 	uint16_t n;
 
@@ -384,7 +384,7 @@ done_2:
 }
 
 static void
-uhci_start(uhci_softc_t *sc)
+uhci_start_locked(uhci_softc_t *sc)
 {
 	USB_BUS_LOCK_ASSERT(&sc->sc_bus, MA_OWNED);
 
@@ -398,13 +398,13 @@ uhci_start(uhci_softc_t *sc)
 	    UHCI_INTR_IOCE |
 	    UHCI_INTR_SPIE));
 
-	if (uhci_restart(sc)) {
+	if (uhci_restart_locked(sc)) {
 		device_printf(sc->sc_bus.bdev,
 		    "cannot start HC controller\n");
 	}
 
 	/* start root interrupt */
-	uhci_root_intr(sc);
+	uhci_root_intr_locked(sc);
 }
 
 static struct uhci_qh *
@@ -639,10 +639,10 @@ uhci_init(uhci_softc_t *sc)
 
 	USB_BUS_LOCK(&sc->sc_bus);
 	/* reset the controller */
-	uhci_reset(sc);
+	uhci_reset_locked(sc);
 
 	/* start the controller */
-	uhci_start(sc);
+	uhci_start_locked(sc);
 	USB_BUS_UNLOCK(&sc->sc_bus);
 
 	/* catch lost interrupts */
@@ -664,7 +664,7 @@ uhci_suspend(uhci_softc_t *sc)
 
 	/* stop the controller */
 
-	uhci_reset(sc);
+	uhci_reset_locked(sc);
 
 	/* enter global suspend */
 
@@ -680,7 +680,7 @@ uhci_resume(uhci_softc_t *sc)
 
 	/* reset the controller */
 
-	uhci_reset(sc);
+	uhci_reset_locked(sc);
 
 	/* force global resume */
 
@@ -688,7 +688,7 @@ uhci_resume(uhci_softc_t *sc)
 
 	/* and start traffic again */
 
-	uhci_start(sc);
+	uhci_start_locked(sc);
 
 	USB_BUS_UNLOCK(&sc->sc_bus);
 
@@ -877,11 +877,11 @@ uhci_transfer_intr_enqueue(struct usb_xfer *xfer)
 		return;
 	}
 	/* put transfer on interrupt queue */
-	usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+	usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 	/* start timeout, if any */
 	if (xfer->timeout != 0) {
-		usbd_transfer_timeout_ms(xfer, &uhci_timeout, xfer->timeout);
+		usbd_transfer_timeout_ms_locked(xfer, &uhci_timeout_locked, xfer->timeout);
 	}
 }
 
@@ -1222,7 +1222,7 @@ uhci_non_isoc_done(struct usb_xfer *xfer)
 		err = uhci_non_isoc_done_sub(xfer);
 	}
 done:
-	uhci_device_done(xfer, err);
+	uhci_device_done_locked(xfer, err);
 }
 
 /*------------------------------------------------------------------------*
@@ -1314,7 +1314,7 @@ uhci_check_transfer(struct usb_xfer *xfer)
 		status |= le32toh(td->td_status);
 
 		if (!(status & UHCI_TD_ACTIVE)) {
-			uhci_device_done(xfer, USB_ERR_NORMAL_COMPLETION);
+			uhci_device_done_locked(xfer, USB_ERR_NORMAL_COMPLETION);
 			goto transferred;
 		}
 	} else {
@@ -1479,7 +1479,7 @@ done:
  * called when a request does not complete
  */
 static void
-uhci_timeout(void *arg)
+uhci_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -1488,7 +1488,7 @@ uhci_timeout(void *arg)
 	USB_BUS_LOCK_ASSERT(xfer->xroot->bus, MA_OWNED);
 
 	/* transfer is transferred */
-	uhci_device_done(xfer, USB_ERR_TIMEOUT);
+	uhci_device_done_locked(xfer, USB_ERR_TIMEOUT);
 }
 
 static void
@@ -1812,7 +1812,7 @@ uhci_setup_standard_chain(struct usb_xfer *xfer)
  */
 
 static void
-uhci_device_done(struct usb_xfer *xfer, usb_error_t error)
+uhci_device_done_locked(struct usb_xfer *xfer, usb_error_t error)
 {
 	const struct usb_pipe_methods *methods = xfer->endpoint->methods;
 	uhci_softc_t *sc = UHCI_BUS2SC(xfer->xroot->bus);
@@ -1857,7 +1857,7 @@ uhci_device_done(struct usb_xfer *xfer, usb_error_t error)
 		xfer->td_transfer_last = NULL;
 	}
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 }
 
 /*------------------------------------------------------------------------*
@@ -1872,7 +1872,7 @@ uhci_device_bulk_open(struct usb_xfer *xfer)
 static void
 uhci_device_bulk_close(struct usb_xfer *xfer)
 {
-	uhci_device_done(xfer, USB_ERR_CANCELLED);
+	uhci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1929,7 +1929,7 @@ uhci_device_ctrl_open(struct usb_xfer *xfer)
 static void
 uhci_device_ctrl_close(struct usb_xfer *xfer)
 {
-	uhci_device_done(xfer, USB_ERR_CANCELLED);
+	uhci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -2022,7 +2022,7 @@ uhci_device_intr_close(struct usb_xfer *xfer)
 
 	sc->sc_intr_stat[xfer->qh_pos]--;
 
-	uhci_device_done(xfer, USB_ERR_CANCELLED);
+	uhci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -2099,7 +2099,7 @@ uhci_device_isoc_open(struct usb_xfer *xfer)
 static void
 uhci_device_isoc_close(struct usb_xfer *xfer)
 {
-	uhci_device_done(xfer, USB_ERR_CANCELLED);
+	uhci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -2330,7 +2330,7 @@ uhci_portreset(uhci_softc_t *sc, uint16_t index)
 	 * Before we do anything, turn on SOF messages on the USB
 	 * BUS. Some USB devices do not cope without them!
 	 */
-	uhci_restart(sc);
+	uhci_restart_locked(sc);
 
 	x = URWMASK(UREAD2(sc, port));
 	UWRITE2(sc, port, x | UHCI_PORTSC_PR);
@@ -2412,7 +2412,7 @@ done:
 }
 
 static usb_error_t
-uhci_roothub_exec(struct usb_device *udev,
+uhci_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	uhci_softc_t *sc = UHCI_BUS2SC(udev->bus);
@@ -2737,7 +2737,7 @@ done:
  * the root controller interrupt pipe for port status change:
  */
 static void
-uhci_root_intr(uhci_softc_t *sc)
+uhci_root_intr_locked(uhci_softc_t *sc)
 {
 	DPRINTFN(21, "\n");
 
@@ -2756,10 +2756,10 @@ uhci_root_intr(uhci_softc_t *sc)
 
 	/* restart timer */
 	usb_callout_reset(&sc->sc_root_intr, hz,
-	    (void *)&uhci_root_intr, sc);
+	    (void *)&uhci_root_intr_locked, sc);
 
 	if (sc->sc_hub_idata[0] != 0) {
-		uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+		uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 		    sizeof(sc->sc_hub_idata));
 	}
 }
@@ -3132,7 +3132,7 @@ uhci_set_hw_power(struct usb_bus *bus)
 		DPRINTF("Some USB transfer is "
 		    "active on unit %u.\n",
 		    device_get_unit(sc->sc_bus.bdev));
-		uhci_restart(sc);
+		uhci_restart_locked(sc);
 	} else {
 		DPRINTF("Power save on unit %u.\n",
 		    device_get_unit(sc->sc_bus.bdev));
@@ -3154,6 +3154,6 @@ static const struct usb_bus_methods uhci_bus_methods =
 	.device_suspend = uhci_device_suspend,
 	.set_hw_power = uhci_set_hw_power,
 	.set_hw_power_sleep = uhci_set_hw_power_sleep,
-	.roothub_exec = uhci_roothub_exec,
+	.roothub_exec = uhci_roothub_exec_locked,
 	.xfer_poll = uhci_do_poll,
 };

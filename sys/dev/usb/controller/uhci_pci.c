@@ -428,7 +428,7 @@ uhci_pci_detach(device_t self)
 		USB_BUS_LOCK(&sc->sc_bus);
 
 		/* stop the controller */
-		uhci_reset(sc);
+		uhci_reset_locked(sc);
 
 		USB_BUS_UNLOCK(&sc->sc_bus);
 	}

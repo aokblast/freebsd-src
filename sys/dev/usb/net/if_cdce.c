@@ -801,8 +801,8 @@ cdce_start(struct usb_ether *ue)
 	/*
 	 * Start the USB transfers, if not already started:
 	 */
-	usbd_transfer_start(sc->sc_xfer[CDCE_BULK_TX]);
-	usbd_transfer_start(sc->sc_xfer[CDCE_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[CDCE_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[CDCE_BULK_RX]);
 }
 
 static int
@@ -933,7 +933,7 @@ tr_setup:
 		if (x != 0) {
 			usbd_xfer_set_frames(xfer, x);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -950,7 +950,7 @@ tr_setup:
 		if (error != USB_ERR_CANCELLED) {
 			if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST) {
 				/* try to clear stall first */
-				usbd_xfer_set_stall(xfer);
+				usbd_xfer_set_stall_locked(xfer);
 			}
 			goto tr_setup;
 		}
@@ -987,8 +987,8 @@ cdce_init(struct usb_ether *ue)
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 
 	/* start interrupt transfer */
-	usbd_transfer_start(sc->sc_xfer[CDCE_INTR_RX]);
-	usbd_transfer_start(sc->sc_xfer[CDCE_INTR_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[CDCE_INTR_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[CDCE_INTR_TX]);
 
 	/*
 	 * Stall data write direction, which depends on USB mode.
@@ -997,7 +997,7 @@ cdce_init(struct usb_ether *ue)
 	 * bit as it should, so set it in our host mode only.
 	 */
 	if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST)
-		usbd_xfer_set_stall(sc->sc_xfer[CDCE_BULK_TX]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[CDCE_BULK_TX]);
 
 	/* start data transfers */
 	cdce_start(ue);
@@ -1016,10 +1016,10 @@ cdce_stop(struct usb_ether *ue)
 	/*
 	 * stop all the transfers, if not already stopped:
 	 */
-	usbd_transfer_stop(sc->sc_xfer[CDCE_BULK_RX]);
-	usbd_transfer_stop(sc->sc_xfer[CDCE_BULK_TX]);
-	usbd_transfer_stop(sc->sc_xfer[CDCE_INTR_RX]);
-	usbd_transfer_stop(sc->sc_xfer[CDCE_INTR_TX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[CDCE_BULK_RX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[CDCE_BULK_TX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[CDCE_INTR_RX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[CDCE_INTR_TX]);
 }
 
 static void
@@ -1133,7 +1133,7 @@ cdce_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		}
 		/* set number of frames and start hardware */
 		usbd_xfer_set_frames(xfer, x);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		/* flush any received frames */
 		uether_rxflush(&sc->sc_ue);
 		break;
@@ -1146,9 +1146,9 @@ cdce_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 tr_stall:
 			if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST) {
 				/* try to clear stall first */
-				usbd_xfer_set_stall(xfer);
+				usbd_xfer_set_stall_locked(xfer);
 				usbd_xfer_set_frames(xfer, 0);
-				usbd_transfer_submit(xfer);
+				usbd_transfer_submit_locked(xfer);
 			}
 			break;
 		}
@@ -1230,14 +1230,14 @@ cdce_intr_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* start clear stall */
 			if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST)
-				usbd_xfer_set_stall(xfer);
+				usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -1291,7 +1291,7 @@ tr_setup:
 			usbd_copy_in(pc, 0, &req, sizeof(req));
 			usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 			usbd_xfer_set_frames(xfer, 1);
-			usbd_transfer_submit(xfer); 
+			usbd_transfer_submit_locked(xfer); 
 
 		} else if (sc->sc_notify_state == CDCE_NOTIFY_SPEED_CHANGE) {
 			req.bmRequestType = UCDC_NOTIFICATION;
@@ -1314,7 +1314,7 @@ tr_setup:
 			usbd_copy_in(pc, 0, &req, sizeof(req));
 			usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 			usbd_xfer_set_frames(xfer, 1);
-			usbd_transfer_submit(xfer); 
+			usbd_transfer_submit_locked(xfer); 
 		}
 		break;
 
@@ -1322,7 +1322,7 @@ tr_setup:
 		if (error != USB_ERR_CANCELLED) {
 			if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST) {
 				/* start clear stall */
-				usbd_xfer_set_stall(xfer);
+				usbd_xfer_set_stall_locked(xfer);
 			}
 			goto tr_setup;
 		}
@@ -1348,7 +1348,7 @@ cdce_handle_request(device_t dev,
 		if (is_complete == 1) {
 			mtx_lock(&sc->sc_mtx);
 			sc->sc_notify_state = CDCE_NOTIFY_SPEED_CHANGE;
-			usbd_transfer_start(sc->sc_xfer[CDCE_INTR_TX]);
+			usbd_transfer_start_locked(sc->sc_xfer[CDCE_INTR_TX]);
 			mtx_unlock(&sc->sc_mtx);
 		}
 
@@ -1557,7 +1557,7 @@ cdce_ncm_bulk_write_callback(struct usb_xfer *xfer, usb_error_t error)
 			usbd_xfer_set_interval(xfer, cdce_tx_interval);
 #endif
 			usbd_xfer_set_frames(xfer, x);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -1571,9 +1571,9 @@ cdce_ncm_bulk_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (error != USB_ERR_CANCELLED) {
 			if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST) {
 				/* try to clear stall first */
-				usbd_xfer_set_stall(xfer);
+				usbd_xfer_set_stall_locked(xfer);
 				usbd_xfer_set_frames(xfer, 0);
-				usbd_transfer_submit(xfer);
+				usbd_transfer_submit_locked(xfer);
 			}
 		}
 		break;
@@ -1722,7 +1722,7 @@ cdce_ncm_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, sc->sc_ncm.rx_max);
 		usbd_xfer_set_frames(xfer, 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(&sc->sc_ue);	/* must be last */
 		break;
 
@@ -1734,9 +1734,9 @@ tr_setup:
 tr_stall:
 			if (usbd_get_mode(sc->sc_ue.ue_udev) == USB_MODE_HOST) {
 				/* try to clear stall first */
-				usbd_xfer_set_stall(xfer);
+				usbd_xfer_set_stall_locked(xfer);
 				usbd_xfer_set_frames(xfer, 0);
-				usbd_transfer_submit(xfer);
+				usbd_transfer_submit_locked(xfer);
 			}
 		}
 		break;

@@ -424,7 +424,7 @@ usb_bdma_work_loop(struct usb_xfer_queue *pq)
 	if (xfer->error) {
 		/* some error happened */
 		USB_BUS_LOCK(info->bus);
-		usbd_transfer_done(xfer, 0);
+		usbd_transfer_done_locked(xfer, 0);
 		USB_BUS_UNLOCK(info->bus);
 		return;
 	}
@@ -498,7 +498,7 @@ usb_bdma_work_loop(struct usb_xfer_queue *pq)
 	}
 	if (info->dma_error) {
 		USB_BUS_LOCK(info->bus);
-		usbd_transfer_done(xfer, USB_ERR_DMA_LOAD_FAILED);
+		usbd_transfer_done_locked(xfer, USB_ERR_DMA_LOAD_FAILED);
 		USB_BUS_UNLOCK(info->bus);
 		return;
 	}
@@ -524,10 +524,10 @@ usb_bdma_work_loop(struct usb_xfer_queue *pq)
 	usb_bdma_pre_sync(xfer);
 
 	/* start loading next USB transfer, if any */
-	usb_command_wrapper(pq, NULL);
+	usb_command_wrapper_locked(pq, NULL);
 
 	/* finally start the hardware */
-	usbd_pipe_enter(xfer);
+	usbd_pipe_enter_locked(xfer);
 }
 
 /*------------------------------------------------------------------------*
@@ -549,7 +549,7 @@ usb_bdma_done_event(struct usb_dma_parent_tag *udpt)
 	info->dma_error = udpt->dma_error;
 
 	/* enter workloop again */
-	usb_command_wrapper(&info->dma_q,
+	usb_command_wrapper_locked(&info->dma_q,
 	    info->dma_q.curr);
 }
 

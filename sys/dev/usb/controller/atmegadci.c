@@ -104,10 +104,10 @@ static atmegadci_cmd_t atmegadci_setup_rx;
 static atmegadci_cmd_t atmegadci_data_rx;
 static atmegadci_cmd_t atmegadci_data_tx;
 static atmegadci_cmd_t atmegadci_data_tx_sync;
-static void atmegadci_device_done(struct usb_xfer *, usb_error_t);
+static void atmegadci_device_done_locked(struct usb_xfer *, usb_error_t);
 static void atmegadci_do_poll(struct usb_bus *);
 static void atmegadci_standard_done(struct usb_xfer *);
-static void atmegadci_root_intr(struct atmegadci_softc *sc);
+static void atmegadci_root_intr_locked(struct atmegadci_softc *sc);
 
 /*
  * Here is a list of what the chip supports:
@@ -634,7 +634,7 @@ atmegadci_vbus_interrupt(struct atmegadci_softc *sc, uint8_t is_on)
 
 			/* complete root HUB interrupt endpoint */
 
-			atmegadci_root_intr(sc);
+			atmegadci_root_intr_locked(sc);
 		}
 	} else {
 		if (sc->sc_flags.status_vbus) {
@@ -646,7 +646,7 @@ atmegadci_vbus_interrupt(struct atmegadci_softc *sc, uint8_t is_on)
 
 			/* complete root HUB interrupt endpoint */
 
-			atmegadci_root_intr(sc);
+			atmegadci_root_intr_locked(sc);
 		}
 	}
 }
@@ -682,7 +682,7 @@ atmegadci_interrupt(struct atmegadci_softc *sc)
 		    ATMEGA_UDINT_EORSTE);
 
 		/* complete root HUB interrupt endpoint */
-		atmegadci_root_intr(sc);
+		atmegadci_root_intr_locked(sc);
 	}
 	/*
 	 * If resume and suspend is set at the same time we interpret
@@ -703,7 +703,7 @@ atmegadci_interrupt(struct atmegadci_softc *sc)
 			    ATMEGA_UDINT_EORSTE);
 
 			/* complete root HUB interrupt endpoint */
-			atmegadci_root_intr(sc);
+			atmegadci_root_intr_locked(sc);
 		}
 	} else if (status & ATMEGA_UDINT_SUSPI) {
 		DPRINTFN(5, "suspend interrupt\n");
@@ -719,7 +719,7 @@ atmegadci_interrupt(struct atmegadci_softc *sc)
 			    ATMEGA_UDINT_EORSTE);
 
 			/* complete root HUB interrupt endpoint */
-			atmegadci_root_intr(sc);
+			atmegadci_root_intr_locked(sc);
 		}
 	}
 	/* check VBUS */
@@ -913,7 +913,7 @@ atmegadci_setup_standard_chain(struct usb_xfer *xfer)
 }
 
 static void
-atmegadci_timeout(void *arg)
+atmegadci_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -922,7 +922,7 @@ atmegadci_timeout(void *arg)
 	USB_BUS_LOCK_ASSERT(xfer->xroot->bus, MA_OWNED);
 
 	/* transfer is transferred */
-	atmegadci_device_done(xfer, USB_ERR_TIMEOUT);
+	atmegadci_device_done_locked(xfer, USB_ERR_TIMEOUT);
 }
 
 static void
@@ -933,18 +933,18 @@ atmegadci_start_standard_chain(struct usb_xfer *xfer)
 	/* poll one time - will turn on interrupts */
 	if (atmegadci_xfer_do_fifo(xfer)) {
 		/* put transfer on interrupt queue */
-		usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+		usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 		/* start timeout, if any */
 		if (xfer->timeout != 0) {
-			usbd_transfer_timeout_ms(xfer,
-			    &atmegadci_timeout, xfer->timeout);
+			usbd_transfer_timeout_ms_locked(xfer,
+			    &atmegadci_timeout_locked, xfer->timeout);
 		}
 	}
 }
 
 static void
-atmegadci_root_intr(struct atmegadci_softc *sc)
+atmegadci_root_intr_locked(struct atmegadci_softc *sc)
 {
 	DPRINTFN(9, "\n");
 
@@ -953,7 +953,7 @@ atmegadci_root_intr(struct atmegadci_softc *sc)
 	/* set port bit */
 	sc->sc_hub_idata[0] = 0x02;	/* we only have one port */
 
-	uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+	uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 	    sizeof(sc->sc_hub_idata));
  }
 
@@ -1058,17 +1058,17 @@ atmegadci_standard_done(struct usb_xfer *xfer)
 		err = atmegadci_standard_done_sub(xfer);
 	}
 done:
-	atmegadci_device_done(xfer, err);
+	atmegadci_device_done_locked(xfer, err);
 }
 
 /*------------------------------------------------------------------------*
- *	atmegadci_device_done
+ *	atmegadci_device_done_locked
  *
  * NOTE: this function can be called more than one time on the
  * same USB transfer!
  *------------------------------------------------------------------------*/
 static void
-atmegadci_device_done(struct usb_xfer *xfer, usb_error_t error)
+atmegadci_device_done_locked(struct usb_xfer *xfer, usb_error_t error)
 {
 	struct atmegadci_softc *sc = ATMEGA_BUS2SC(xfer->xroot->bus);
 	uint8_t ep_no;
@@ -1090,17 +1090,17 @@ atmegadci_device_done(struct usb_xfer *xfer, usb_error_t error)
 		DPRINTFN(15, "disabled interrupts!\n");
 	}
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 }
 
 static void
 atmegadci_xfer_stall(struct usb_xfer *xfer)
 {
-	atmegadci_device_done(xfer, USB_ERR_STALLED);
+	atmegadci_device_done_locked(xfer, USB_ERR_STALLED);
 }
 
 static void
-atmegadci_set_stall(struct usb_device *udev,
+atmegadci_set_stall_locked(struct usb_device *udev,
     struct usb_endpoint *ep, uint8_t *did_stall)
 {
 	struct atmegadci_softc *sc;
@@ -1182,7 +1182,7 @@ atmegadci_clear_stall_sub(struct atmegadci_softc *sc, uint8_t ep_no,
 }
 
 static void
-atmegadci_clear_stall(struct usb_device *udev, struct usb_endpoint *ep)
+atmegadci_clear_stall_locked(struct usb_device *udev, struct usb_endpoint *ep)
 {
 	struct atmegadci_softc *sc;
 	struct usb_endpoint_descriptor *ed;
@@ -1370,7 +1370,7 @@ atmegadci_device_non_isoc_open(struct usb_xfer *xfer)
 static void
 atmegadci_device_non_isoc_close(struct usb_xfer *xfer)
 {
-	atmegadci_device_done(xfer, USB_ERR_CANCELLED);
+	atmegadci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1407,7 +1407,7 @@ atmegadci_device_isoc_fs_open(struct usb_xfer *xfer)
 static void
 atmegadci_device_isoc_fs_close(struct usb_xfer *xfer)
 {
-	atmegadci_device_done(xfer, USB_ERR_CANCELLED);
+	atmegadci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1518,7 +1518,7 @@ USB_MAKE_STRING_DESC(STRING_VENDOR, atmegadci_vendor);
 USB_MAKE_STRING_DESC(STRING_PRODUCT, atmegadci_product);
 
 static usb_error_t
-atmegadci_roothub_exec(struct usb_device *udev,
+atmegadci_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	struct atmegadci_softc *sc = ATMEGA_BUS2SC(udev->bus);
@@ -2083,9 +2083,9 @@ static const struct usb_bus_methods atmegadci_bus_methods =
 	.xfer_unsetup = &atmegadci_xfer_unsetup,
 	.get_hw_ep_profile = &atmegadci_get_hw_ep_profile,
 	.xfer_stall = &atmegadci_xfer_stall,
-	.set_stall = &atmegadci_set_stall,
-	.clear_stall = &atmegadci_clear_stall,
-	.roothub_exec = &atmegadci_roothub_exec,
+	.set_stall = &atmegadci_set_stall_locked,
+	.clear_stall = &atmegadci_clear_stall_locked,
+	.roothub_exec = &atmegadci_roothub_exec_locked,
 	.xfer_poll = &atmegadci_do_poll,
 	.set_hw_power_sleep = &atmegadci_set_hw_power_sleep,
 };

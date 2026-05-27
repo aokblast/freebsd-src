@@ -442,8 +442,8 @@ usb_submit_urb(struct urb *urb, uint16_t mem_flags)
 
 		urb->status = -EINPROGRESS;
 
-		usbd_transfer_start(uhe->bsd_xfer[0]);
-		usbd_transfer_start(uhe->bsd_xfer[1]);
+		usbd_transfer_start_locked(uhe->bsd_xfer[0]);
+		usbd_transfer_start_locked(uhe->bsd_xfer[1]);
 		err = 0;
 	} else {
 		/* no pipes have been setup yet! */
@@ -474,7 +474,7 @@ usb_unlink_bsd(struct usb_xfer *xfer,
 {
 	if (xfer == NULL)
 		return;
-	if (!usbd_transfer_pending(xfer))
+	if (!usbd_transfer_pending_locked(xfer))
 		return;
 	if (xfer->priv_fifo == (void *)urb) {
 		if (drain) {
@@ -482,9 +482,9 @@ usb_unlink_bsd(struct usb_xfer *xfer,
 			usbd_transfer_drain(xfer);
 			mtx_lock(&Giant);
 		} else {
-			usbd_transfer_stop(xfer);
+			usbd_transfer_stop_locked(xfer);
 		}
-		usbd_transfer_start(xfer);
+		usbd_transfer_start_locked(xfer);
 	}
 }
 
@@ -1461,7 +1461,7 @@ tr_setup:
 		xfer->flags.force_short_xfer = 0;
 		xfer->timeout = urb->timeout;
 		xfer->nframes = urb->number_of_packets;
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
@@ -1632,7 +1632,7 @@ setup_bulk:
 		} else {
 			xfer->nframes = 1;
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:

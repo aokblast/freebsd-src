@@ -344,8 +344,8 @@ ipheth_start(struct usb_ether *ue)
 	/*
 	 * Start the USB transfers, if not already started:
 	 */
-	usbd_transfer_start(sc->sc_xfer[IPHETH_BULK_TX]);
-	usbd_transfer_start(sc->sc_xfer[IPHETH_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[IPHETH_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[IPHETH_BULK_RX]);
 }
 
 static void
@@ -356,8 +356,8 @@ ipheth_stop(struct usb_ether *ue)
 	/*
 	 * Stop the USB transfers, if not already stopped:
 	 */
-	usbd_transfer_stop(sc->sc_xfer[IPHETH_BULK_TX]);
-	usbd_transfer_stop(sc->sc_xfer[IPHETH_BULK_RX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[IPHETH_BULK_TX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[IPHETH_BULK_RX]);
 }
 
 static void
@@ -402,7 +402,7 @@ ipheth_init(struct usb_ether *ue)
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 
 	/* stall data write direction, which depends on USB mode */
-	usbd_xfer_set_stall(sc->sc_xfer[IPHETH_BULK_TX]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[IPHETH_BULK_TX]);
 
 	/* start data transfers */
 	ipheth_start(ue);
@@ -492,7 +492,7 @@ tr_setup:
 		if (x != 0) {
 			usbd_xfer_set_frames(xfer, x);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -508,7 +508,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -557,7 +557,7 @@ ipheth_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 			usbd_xfer_set_frames(xfer, 1);
 		}
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		/* flush any received frames */
 		uether_rxflush(&sc->sc_ue);
 		break;
@@ -568,9 +568,9 @@ ipheth_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (error != USB_ERR_CANCELLED) {
 	tr_stall:
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			usbd_xfer_set_frames(xfer, 0);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 			break;
 		}
 		/* need to free the RX-mbufs when we are cancelled */

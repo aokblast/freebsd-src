@@ -118,10 +118,10 @@ static const struct usb_pipe_methods ohci_device_intr_methods;
 static const struct usb_pipe_methods ohci_device_isoc_methods;
 
 static void ohci_do_poll(struct usb_bus *bus);
-static void ohci_device_done(struct usb_xfer *xfer, usb_error_t error);
-static void ohci_timeout(void *arg);
+static void ohci_device_done_locked(struct usb_xfer *xfer, usb_error_t error);
+static void ohci_timeout_locked(void *arg);
 static uint8_t ohci_check_transfer(struct usb_xfer *xfer);
-static void ohci_root_intr(ohci_softc_t *sc);
+static void ohci_root_intr_locked(ohci_softc_t *sc);
 
 struct ohci_std_temp {
 	struct usb_page_cache *pc;
@@ -644,11 +644,11 @@ ohci_transfer_intr_enqueue(struct usb_xfer *xfer)
 		return;
 	}
 	/* put transfer on interrupt queue */
-	usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+	usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 	/* start timeout, if any */
 	if (xfer->timeout != 0) {
-		usbd_transfer_timeout_ms(xfer, &ohci_timeout, xfer->timeout);
+		usbd_transfer_timeout_ms_locked(xfer, &ohci_timeout_locked, xfer->timeout);
 	}
 }
 
@@ -765,7 +765,7 @@ ohci_isoc_done(struct usb_xfer *xfer)
 	}
 
 	xfer->aframes = xfer->nframes;
-	ohci_device_done(xfer, USB_ERR_NORMAL_COMPLETION);
+	ohci_device_done_locked(xfer, USB_ERR_NORMAL_COMPLETION);
 }
 
 #ifdef USB_DEBUG
@@ -929,7 +929,7 @@ ohci_non_isoc_done(struct usb_xfer *xfer)
 		err = ohci_non_isoc_done_sub(xfer);
 	}
 done:
-	ohci_device_done(xfer, err);
+	ohci_device_done_locked(xfer, err);
 }
 
 /*------------------------------------------------------------------------*
@@ -1062,7 +1062,7 @@ ohci_check_transfer(struct usb_xfer *xfer)
 }
 
 static void
-ohci_rhsc_enable(ohci_softc_t *sc)
+ohci_rhsc_enable_locked(ohci_softc_t *sc)
 {
 	DPRINTFN(5, "\n");
 
@@ -1074,7 +1074,7 @@ ohci_rhsc_enable(ohci_softc_t *sc)
 	/* acknowledge any RHSC interrupt */
 	OWRITE4(sc, OHCI_INTERRUPT_STATUS, OHCI_RHSC);
 
-	ohci_root_intr(sc);
+	ohci_root_intr_locked(sc);
 }
 
 static void
@@ -1188,11 +1188,11 @@ ohci_interrupt(ohci_softc_t *sc)
 			sc->sc_eintrs &= ~OHCI_RHSC;
 			OWRITE4(sc, OHCI_INTERRUPT_DISABLE, OHCI_RHSC);
 
-			ohci_root_intr(sc);
+			ohci_root_intr_locked(sc);
 
 			/* do not allow RHSC interrupts > 1 per second */
 			usb_callout_reset(&sc->sc_tmo_rhsc, hz,
-			    (void *)&ohci_rhsc_enable, sc);
+			    (void *)&ohci_rhsc_enable_locked, sc);
 		}
 	}
 	status &= ~(OHCI_RHSC | OHCI_WDH | OHCI_SO);
@@ -1214,7 +1214,7 @@ done:
  * called when a request does not complete
  */
 static void
-ohci_timeout(void *arg)
+ohci_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -1223,7 +1223,7 @@ ohci_timeout(void *arg)
 	USB_BUS_LOCK_ASSERT(xfer->xroot->bus, MA_OWNED);
 
 	/* transfer is transferred */
-	ohci_device_done(xfer, USB_ERR_TIMEOUT);
+	ohci_device_done_locked(xfer, USB_ERR_TIMEOUT);
 }
 
 static void
@@ -1575,7 +1575,7 @@ ohci_setup_standard_chain(struct usb_xfer *xfer, ohci_ed_t **ed_last)
 }
 
 static void
-ohci_root_intr(ohci_softc_t *sc)
+ohci_root_intr_locked(ohci_softc_t *sc)
 {
 	uint32_t hstatus __usbdebug_used;
 	uint16_t i;
@@ -1603,7 +1603,7 @@ ohci_root_intr(ohci_softc_t *sc)
 		}
 	}
 
-	uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+	uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 	    sizeof(sc->sc_hub_idata));
 }
 
@@ -1611,7 +1611,7 @@ ohci_root_intr(ohci_softc_t *sc)
  * from close and from interrupt
  */
 static void
-ohci_device_done(struct usb_xfer *xfer, usb_error_t error)
+ohci_device_done_locked(struct usb_xfer *xfer, usb_error_t error)
 {
 	const struct usb_pipe_methods *methods = xfer->endpoint->methods;
 	ohci_softc_t *sc = OHCI_BUS2SC(xfer->xroot->bus);
@@ -1642,7 +1642,7 @@ ohci_device_done(struct usb_xfer *xfer, usb_error_t error)
 	xfer->td_transfer_last = NULL;
 
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 }
 
 /*------------------------------------------------------------------------*
@@ -1657,7 +1657,7 @@ ohci_device_bulk_open(struct usb_xfer *xfer)
 static void
 ohci_device_bulk_close(struct usb_xfer *xfer)
 {
-	ohci_device_done(xfer, USB_ERR_CANCELLED);
+	ohci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1698,7 +1698,7 @@ ohci_device_ctrl_open(struct usb_xfer *xfer)
 static void
 ohci_device_ctrl_close(struct usb_xfer *xfer)
 {
-	ohci_device_done(xfer, USB_ERR_CANCELLED);
+	ohci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1770,7 +1770,7 @@ ohci_device_intr_close(struct usb_xfer *xfer)
 
 	sc->sc_intr_stat[xfer->qh_pos]--;
 
-	ohci_device_done(xfer, USB_ERR_CANCELLED);
+	ohci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1812,7 +1812,7 @@ static void
 ohci_device_isoc_close(struct usb_xfer *xfer)
 {
 	/**/
-	ohci_device_done(xfer, USB_ERR_CANCELLED);
+	ohci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -2045,7 +2045,7 @@ struct usb_hub_descriptor ohci_hubd =
 };
 
 static usb_error_t
-ohci_roothub_exec(struct usb_device *udev,
+ohci_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	ohci_softc_t *sc = OHCI_BUS2SC(udev->bus);
@@ -2227,7 +2227,7 @@ ohci_roothub_exec(struct usb_device *udev,
 		case UHF_C_PORT_RESET:
 			/* enable RHSC interrupt if condition is cleared. */
 			if ((OREAD4(sc, port) >> 16) == 0)
-				ohci_rhsc_enable(sc);
+				ohci_rhsc_enable_locked(sc);
 			break;
 		default:
 			break;
@@ -2681,6 +2681,6 @@ static const struct usb_bus_methods ohci_bus_methods =
 	.device_suspend = ohci_device_suspend,
 	.set_hw_power = ohci_set_hw_power,
 	.set_hw_power_sleep = ohci_set_hw_power_sleep,
-	.roothub_exec = ohci_roothub_exec,
+	.roothub_exec = ohci_roothub_exec_locked,
 	.xfer_poll = ohci_do_poll,
 };

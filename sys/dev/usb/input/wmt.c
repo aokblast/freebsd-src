@@ -674,12 +674,12 @@ tr_ignore:
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, sc->isize);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		if (error != USB_ERR_CANCELLED) {
 			/* Try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -692,7 +692,7 @@ wmt_ev_close_11(struct evdev_dev *evdev, void *ev_softc)
 	struct wmt_softc *sc = ev_softc;
 
 	mtx_assert(&sc->mtx, MA_OWNED);
-	usbd_transfer_stop(sc->xfer[WMT_INTR_DT]);
+	usbd_transfer_stop_locked(sc->xfer[WMT_INTR_DT]);
 }
 
 static int
@@ -701,7 +701,7 @@ wmt_ev_open_11(struct evdev_dev *evdev, void *ev_softc)
 	struct wmt_softc *sc = ev_softc;
 
 	mtx_assert(&sc->mtx, MA_OWNED);
-	usbd_transfer_start(sc->xfer[WMT_INTR_DT]);
+	usbd_transfer_start_locked(sc->xfer[WMT_INTR_DT]);
 
 	return (0);
 }

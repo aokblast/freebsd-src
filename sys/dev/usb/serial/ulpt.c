@@ -219,14 +219,14 @@ tr_setup:
 		max = usbd_xfer_max_len(xfer);
 		if (usb_fifo_get_data(f, pc, 0, max, &actlen, 0)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -274,7 +274,7 @@ ulpt_read_callback(struct usb_xfer *xfer, usb_error_t error)
 tr_setup:
 		if (usb_fifo_put_bytes_max(f) != 0) {
 			usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -285,7 +285,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -336,7 +336,7 @@ ulpt_status_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 		usbd_xfer_set_frame_len(xfer, 1, 1);
 		usbd_xfer_set_frames(xfer, 2);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -382,7 +382,7 @@ ulpt_start_read(struct usb_fifo *fifo)
 {
 	struct ulpt_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(sc->sc_xfer[ULPT_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[ULPT_BULK_DT_RD]);
 }
 
 static void
@@ -390,7 +390,7 @@ ulpt_stop_read(struct usb_fifo *fifo)
 {
 	struct ulpt_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[ULPT_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[ULPT_BULK_DT_RD]);
 }
 
 static void
@@ -398,7 +398,7 @@ ulpt_start_write(struct usb_fifo *fifo)
 {
 	struct ulpt_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(sc->sc_xfer[ULPT_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[ULPT_BULK_DT_WR]);
 }
 
 static void
@@ -406,7 +406,7 @@ ulpt_stop_write(struct usb_fifo *fifo)
 {
 	struct ulpt_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_xfer[ULPT_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[ULPT_BULK_DT_WR]);
 }
 
 static int
@@ -435,7 +435,7 @@ unlpt_open(struct usb_fifo *fifo, int fflags)
 	if (fflags & FREAD) {
 		/* clear stall first */
 		mtx_lock(&sc->sc_mtx);
-		usbd_xfer_set_stall(sc->sc_xfer[ULPT_BULK_DT_RD]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[ULPT_BULK_DT_RD]);
 		mtx_unlock(&sc->sc_mtx);
 		if (usb_fifo_alloc_buffer(fifo,
 		    usbd_xfer_max_len(sc->sc_xfer[ULPT_BULK_DT_RD]),
@@ -448,7 +448,7 @@ unlpt_open(struct usb_fifo *fifo, int fflags)
 	if (fflags & FWRITE) {
 		/* clear stall first */
 		mtx_lock(&sc->sc_mtx);
-		usbd_xfer_set_stall(sc->sc_xfer[ULPT_BULK_DT_WR]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[ULPT_BULK_DT_WR]);
 		mtx_unlock(&sc->sc_mtx);
 		if (usb_fifo_alloc_buffer(fifo,
 		    usbd_xfer_max_len(sc->sc_xfer[ULPT_BULK_DT_WR]),
@@ -740,7 +740,7 @@ ulpt_watchdog(void *arg)
 	 * possible hardware or firmware bug in some printers.
 	 */
 	if (sc->sc_fflags == 0)
-		usbd_transfer_start(sc->sc_xfer[ULPT_INTR_DT_RD]);
+		usbd_transfer_start_locked(sc->sc_xfer[ULPT_INTR_DT_RD]);
 
 	usb_callout_reset(&sc->sc_watchdog,
 	    hz, &ulpt_watchdog, sc);

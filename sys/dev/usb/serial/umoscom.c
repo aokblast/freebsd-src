@@ -330,8 +330,8 @@ umoscom_attach(device_t dev)
 	}
 	/* clear stall at first run */
 	mtx_lock(&sc->sc_mtx);
-	usbd_xfer_set_stall(sc->sc_xfer[UMOSCOM_BULK_DT_WR]);
-	usbd_xfer_set_stall(sc->sc_xfer[UMOSCOM_BULK_DT_RD]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[UMOSCOM_BULK_DT_WR]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[UMOSCOM_BULK_DT_RD]);
 	mtx_unlock(&sc->sc_mtx);
 
 	error = ucom_attach(&sc->sc_super_ucom, &sc->sc_ucom, 1, sc,
@@ -589,10 +589,10 @@ umoscom_start_read(struct ucom_softc *ucom)
 
 #if 0
 	/* start interrupt endpoint */
-	usbd_transfer_start(sc->sc_xfer[UMOSCOM_INTR_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMOSCOM_INTR_DT_RD]);
 #endif
 	/* start read endpoint */
-	usbd_transfer_start(sc->sc_xfer[UMOSCOM_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMOSCOM_BULK_DT_RD]);
 }
 
 static void
@@ -601,10 +601,10 @@ umoscom_stop_read(struct ucom_softc *ucom)
 	struct umoscom_softc *sc = ucom->sc_parent;
 
 	/* stop interrupt transfer */
-	usbd_transfer_stop(sc->sc_xfer[UMOSCOM_INTR_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMOSCOM_INTR_DT_RD]);
 
 	/* stop read endpoint */
-	usbd_transfer_stop(sc->sc_xfer[UMOSCOM_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMOSCOM_BULK_DT_RD]);
 }
 
 static void
@@ -612,7 +612,7 @@ umoscom_start_write(struct ucom_softc *ucom)
 {
 	struct umoscom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_xfer[UMOSCOM_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMOSCOM_BULK_DT_WR]);
 }
 
 static void
@@ -620,7 +620,7 @@ umoscom_stop_write(struct ucom_softc *ucom)
 {
 	struct umoscom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_xfer[UMOSCOM_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMOSCOM_BULK_DT_WR]);
 }
 
 static void
@@ -640,7 +640,7 @@ tr_setup:
 		if (ucom_get_data(&sc->sc_ucom, pc, 0,
 		    UMOSCOM_BUFSIZE, &actlen)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -648,7 +648,7 @@ tr_setup:
 		if (error != USB_ERR_CANCELLED) {
 			DPRINTFN(0, "transfer failed\n");
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -675,14 +675,14 @@ tr_setup:
 		DPRINTF("\n");
 
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			DPRINTFN(0, "transfer failed\n");
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -708,14 +708,14 @@ umoscom_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			DPRINTFN(0, "transfer failed\n");
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;

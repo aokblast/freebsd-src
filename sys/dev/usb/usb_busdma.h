@@ -142,12 +142,12 @@ struct usb_dma_tag *usb_dma_tag_find(struct usb_dma_parent_tag *udpt,
 uint8_t	usb_pc_alloc_mem(struct usb_page_cache *pc, struct usb_page *pg,
 	    usb_size_t size, usb_size_t align);
 uint8_t	usb_pc_dmamap_create(struct usb_page_cache *pc, usb_size_t size);
-uint8_t	usb_pc_load_mem(struct usb_page_cache *pc, usb_size_t size,
+uint8_t	usb_pc_load_mem_locked(struct usb_page_cache *pc, usb_size_t size,
 	    uint8_t sync);
-void	usb_bdma_done_event(struct usb_dma_parent_tag *udpt);
+void	usb_bdma_done_event_locked(struct usb_dma_parent_tag *udpt);
 void	usb_bdma_post_sync(struct usb_xfer *xfer);
 void	usb_bdma_pre_sync(struct usb_xfer *xfer);
-void	usb_bdma_work_loop(struct usb_xfer_queue *pq);
+void	usb_bdma_work_loop_locked(struct usb_xfer_queue *pq);
 void	usb_dma_tag_setup(struct usb_dma_parent_tag *udpt,
 	    struct usb_dma_tag *udt, bus_dma_tag_t dmat, struct mtx *mtx,
 	    usb_dma_callback_t *func, uint8_t ndmabits, uint8_t nudt);

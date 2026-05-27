@@ -74,7 +74,7 @@ void	usb_needs_explore(struct usb_bus *bus, uint8_t do_probe);
 void	usb_needs_explore_all(void);
 void	usb_bus_power_update(struct usb_bus *bus);
 void	usb_bus_powerd(struct usb_bus *bus);
-void	uhub_root_intr(struct usb_bus *, const uint8_t *, uint8_t);
+void	uhub_root_intr_locked(struct usb_bus *, const uint8_t *, uint8_t);
 usb_error_t uhub_query_info(struct usb_device *, uint8_t *, uint8_t *);
 void	uhub_explore_handle_re_enumerate(struct usb_device *);
 

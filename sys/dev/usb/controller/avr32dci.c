@@ -104,10 +104,10 @@ static avr32dci_cmd_t avr32dci_setup_rx;
 static avr32dci_cmd_t avr32dci_data_rx;
 static avr32dci_cmd_t avr32dci_data_tx;
 static avr32dci_cmd_t avr32dci_data_tx_sync;
-static void avr32dci_device_done(struct usb_xfer *, usb_error_t);
+static void avr32dci_device_done_locked(struct usb_xfer *, usb_error_t);
 static void avr32dci_do_poll(struct usb_bus *);
 static void avr32dci_standard_done(struct usb_xfer *);
-static void avr32dci_root_intr(struct avr32dci_softc *sc);
+static void avr32dci_root_intr_locked(struct avr32dci_softc *sc);
 
 /*
  * Here is a list of what the chip supports:
@@ -622,7 +622,7 @@ avr32dci_vbus_interrupt(struct avr32dci_softc *sc, uint8_t is_on)
 
 			/* complete root HUB interrupt endpoint */
 
-			avr32dci_root_intr(sc);
+			avr32dci_root_intr_locked(sc);
 		}
 	} else {
 		if (sc->sc_flags.status_vbus) {
@@ -634,7 +634,7 @@ avr32dci_vbus_interrupt(struct avr32dci_softc *sc, uint8_t is_on)
 
 			/* complete root HUB interrupt endpoint */
 
-			avr32dci_root_intr(sc);
+			avr32dci_root_intr_locked(sc);
 		}
 	}
 }
@@ -669,7 +669,7 @@ avr32dci_interrupt(struct avr32dci_softc *sc)
 		    AVR32_INT_ENDRESET, AVR32_INT_WAKE_UP);
 
 		/* complete root HUB interrupt endpoint */
-		avr32dci_root_intr(sc);
+		avr32dci_root_intr_locked(sc);
 	}
 	/*
 	 * If resume and suspend is set at the same time we interpret
@@ -689,7 +689,7 @@ avr32dci_interrupt(struct avr32dci_softc *sc)
 			    AVR32_INT_ENDRESET, AVR32_INT_WAKE_UP);
 
 			/* complete root HUB interrupt endpoint */
-			avr32dci_root_intr(sc);
+			avr32dci_root_intr_locked(sc);
 		}
 	} else if (status & AVR32_INT_DET_SUSPD) {
 		DPRINTFN(5, "suspend interrupt\n");
@@ -704,7 +704,7 @@ avr32dci_interrupt(struct avr32dci_softc *sc)
 			    AVR32_INT_ENDRESET, AVR32_INT_DET_SUSPD);
 
 			/* complete root HUB interrupt endpoint */
-			avr32dci_root_intr(sc);
+			avr32dci_root_intr_locked(sc);
 		}
 	}
 	/* check for any endpoint interrupts */
@@ -885,7 +885,7 @@ avr32dci_setup_standard_chain(struct usb_xfer *xfer)
 }
 
 static void
-avr32dci_timeout(void *arg)
+avr32dci_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -894,7 +894,7 @@ avr32dci_timeout(void *arg)
 	USB_BUS_LOCK_ASSERT(xfer->xroot->bus, MA_OWNED);
 
 	/* transfer is transferred */
-	avr32dci_device_done(xfer, USB_ERR_TIMEOUT);
+	avr32dci_device_done_locked(xfer, USB_ERR_TIMEOUT);
 }
 
 static void
@@ -910,18 +910,18 @@ avr32dci_start_standard_chain(struct usb_xfer *xfer)
 		avr32dci_mod_ien(sc, AVR32_INT_EPT_INT(ep_no), 0);
 
 		/* put transfer on interrupt queue */
-		usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+		usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 		/* start timeout, if any */
 		if (xfer->timeout != 0) {
-			usbd_transfer_timeout_ms(xfer,
-			    &avr32dci_timeout, xfer->timeout);
+			usbd_transfer_timeout_ms_locked(xfer,
+			    &avr32dci_timeout_locked, xfer->timeout);
 		}
 	}
 }
 
 static void
-avr32dci_root_intr(struct avr32dci_softc *sc)
+avr32dci_root_intr_locked(struct avr32dci_softc *sc)
 {
 	DPRINTFN(9, "\n");
 
@@ -930,7 +930,7 @@ avr32dci_root_intr(struct avr32dci_softc *sc)
 	/* set port bit */
 	sc->sc_hub_idata[0] = 0x02;	/* we only have one port */
 
-	uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+	uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 	    sizeof(sc->sc_hub_idata));
 }
 
@@ -1035,17 +1035,17 @@ avr32dci_standard_done(struct usb_xfer *xfer)
 		err = avr32dci_standard_done_sub(xfer);
 	}
 done:
-	avr32dci_device_done(xfer, err);
+	avr32dci_device_done_locked(xfer, err);
 }
 
 /*------------------------------------------------------------------------*
- *	avr32dci_device_done
+ *	avr32dci_device_done_locked
  *
  * NOTE: this function can be called more than one time on the
  * same USB transfer!
  *------------------------------------------------------------------------*/
 static void
-avr32dci_device_done(struct usb_xfer *xfer, usb_error_t error)
+avr32dci_device_done_locked(struct usb_xfer *xfer, usb_error_t error)
 {
 	struct avr32dci_softc *sc = AVR32_BUS2SC(xfer->xroot->bus);
 	uint8_t ep_no;
@@ -1064,17 +1064,17 @@ avr32dci_device_done(struct usb_xfer *xfer, usb_error_t error)
 		DPRINTFN(15, "disabled interrupts!\n");
 	}
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 }
 
 static void
 avr32dci_xfer_stall(struct usb_xfer *xfer)
 {
-	avr32dci_device_done(xfer, USB_ERR_STALLED);
+	avr32dci_device_done_locked(xfer, USB_ERR_STALLED);
 }
 
 static void
-avr32dci_set_stall(struct usb_device *udev,
+avr32dci_set_stall_locked(struct usb_device *udev,
     struct usb_endpoint *pipe, uint8_t *did_stall)
 {
 	struct avr32dci_softc *sc;
@@ -1157,7 +1157,7 @@ avr32dci_clear_stall_sub(struct avr32dci_softc *sc, uint8_t ep_no,
 }
 
 static void
-avr32dci_clear_stall(struct usb_device *udev, struct usb_endpoint *pipe)
+avr32dci_clear_stall_locked(struct usb_device *udev, struct usb_endpoint *pipe)
 {
 	struct avr32dci_softc *sc;
 	struct usb_endpoint_descriptor *ed;
@@ -1309,7 +1309,7 @@ avr32dci_device_non_isoc_open(struct usb_xfer *xfer)
 static void
 avr32dci_device_non_isoc_close(struct usb_xfer *xfer)
 {
-	avr32dci_device_done(xfer, USB_ERR_CANCELLED);
+	avr32dci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1346,7 +1346,7 @@ avr32dci_device_isoc_fs_open(struct usb_xfer *xfer)
 static void
 avr32dci_device_isoc_fs_close(struct usb_xfer *xfer)
 {
-	avr32dci_device_done(xfer, USB_ERR_CANCELLED);
+	avr32dci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1467,7 +1467,7 @@ USB_MAKE_STRING_DESC(STRING_VENDOR, avr32dci_vendor);
 USB_MAKE_STRING_DESC(STRING_PRODUCT, avr32dci_product);
 
 static usb_error_t
-avr32dci_roothub_exec(struct usb_device *udev,
+avr32dci_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	struct avr32dci_softc *sc = AVR32_BUS2SC(udev->bus);
@@ -2045,9 +2045,9 @@ static const struct usb_bus_methods avr32dci_bus_methods =
 	.xfer_unsetup = &avr32dci_xfer_unsetup,
 	.get_hw_ep_profile = &avr32dci_get_hw_ep_profile,
 	.xfer_stall = &avr32dci_xfer_stall,
-	.set_stall = &avr32dci_set_stall,
-	.clear_stall = &avr32dci_clear_stall,
-	.roothub_exec = &avr32dci_roothub_exec,
+	.set_stall = &avr32dci_set_stall_locked,
+	.clear_stall = &avr32dci_clear_stall_locked,
+	.roothub_exec = &avr32dci_roothub_exec_locked,
 	.xfer_poll = &avr32dci_do_poll,
 	.set_hw_power_sleep = &avr32dci_set_hw_power_sleep,
 };

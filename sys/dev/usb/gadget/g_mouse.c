@@ -233,7 +233,7 @@ g_mouse_button_press_timeout(void *arg)
 
 	g_mouse_button_press_timeout_reset(sc);
 
-	usbd_transfer_start(sc->sc_xfer[G_MOUSE_INTR_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_MOUSE_INTR_DT]);
 }
 
 static void
@@ -247,7 +247,7 @@ g_mouse_cursor_update_timeout(void *arg)
 
 	g_mouse_cursor_update_timeout_reset(sc);
 
-	usbd_transfer_start(sc->sc_xfer[G_MOUSE_INTR_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_MOUSE_INTR_DT]);
 }
 
 static int
@@ -418,7 +418,7 @@ tr_setup:
 
 		usbd_xfer_set_frame_data(xfer, 0, &sc->sc_data, sizeof(sc->sc_data));
 		usbd_xfer_set_frames(xfer, 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -426,7 +426,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

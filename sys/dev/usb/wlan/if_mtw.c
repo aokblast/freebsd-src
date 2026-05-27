@@ -1096,7 +1096,7 @@ mtw_ucode_write(struct mtw_softc *sc, const uint8_t *fw, const uint8_t *ivb,
 	sc->sc_sent = 0;
 	memcpy(sc->sc_ivb_1, ivb, MTW_MCU_IVB_LEN);
 
-	usbd_transfer_start(sc->sc_xfer[7]);
+	usbd_transfer_start_locked(sc->sc_xfer[7]);
 
 	return (0);
 }
@@ -1437,7 +1437,7 @@ mtw_mcu_cmd(struct mtw_softc *sc, u_int8_t cmd, void *buf, int len)
 
 	memset(&sc->txd_fw[sc->sc_idx]->fw, 0, 2004);
 	memcpy(&sc->txd_fw[sc->sc_idx]->fw, buf, len);
-	usbd_transfer_start(sc->sc_xfer[7]);
+	usbd_transfer_start_locked(sc->sc_xfer[7]);
 	return (0);
 }
 
@@ -2592,7 +2592,7 @@ mtw_bulk_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 				MTW_DEBUG_USB,
 			    "could not allocate mbuf - idle with stall\n");
 			counter_u64_add(ic->ic_ierrors, 1);
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			usbd_xfer_set_frames(xfer, 0);
 		} else {
 			/*
@@ -2604,7 +2604,7 @@ mtw_bulk_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 			    mtod(sc->rx_m, caddr_t), MTW_MAX_RXSZ);
 			usbd_xfer_set_frames(xfer, 1);
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -2613,7 +2613,7 @@ mtw_bulk_rx_callback(struct usb_xfer *xfer, usb_error_t error)
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			if (error == USB_ERR_TIMEOUT)
 				device_printf(sc->sc_dev, "device timeout %s\n",
 				    __func__);
@@ -2793,7 +2793,7 @@ mtw_bulk_tx_callbackN(struct usb_xfer *xfer, usb_error_t error, u_int index)
 
 		usbd_xfer_set_frame_len(xfer, 0, size);
 		usbd_xfer_set_priv(xfer, data);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		mtw_start(sc);
 
 		break;
@@ -2831,7 +2831,7 @@ mtw_bulk_tx_callbackN(struct usb_xfer *xfer, usb_error_t error, u_int index)
 			 * errors occur, hence clearing stall
 			 * introduces a 50 ms delay:
 			 */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2915,7 +2915,7 @@ mtw_fw_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_data(xfer, 0, sc->txd_fw[sc->sc_idx], dlen);
 
 		// usbd_xfer_set_priv(xfer,sc->txd[sc->sc_idx]);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -3209,7 +3209,7 @@ mtw_tx(struct mtw_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 	}
 
 	STAILQ_INSERT_TAIL(&sc->sc_epq[qid].tx_qh, data, next);
-	usbd_transfer_start(sc->sc_xfer[mtw_wme_ac_xfer_map[qid]]);
+	usbd_transfer_start_locked(sc->sc_xfer[mtw_wme_ac_xfer_map[qid]]);
 
 	MTW_DPRINTF(sc, MTW_DEBUG_XMIT,
 	    "sending data frame len=%d rate=%d qid=%d\n",
@@ -3283,7 +3283,7 @@ mtw_tx_mgt(struct mtw_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 
 	STAILQ_INSERT_TAIL(&sc->sc_epq[0].tx_qh, data, next);
 
-	usbd_transfer_start(sc->sc_xfer[MTW_BULK_TX_BE]);
+	usbd_transfer_start_locked(sc->sc_xfer[MTW_BULK_TX_BE]);
 
 	return (0);
 }
@@ -3349,7 +3349,7 @@ mtw_sendprot(struct mtw_softc *sc, const struct mbuf *m,
 
 	STAILQ_INSERT_TAIL(&sc->sc_epq[0].tx_qh, data, next);
 
-	usbd_transfer_start(sc->sc_xfer[0]);
+	usbd_transfer_start_locked(sc->sc_xfer[0]);
 
 	return (0);
 }
@@ -3431,7 +3431,7 @@ mtw_tx_param(struct mtw_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 
 	STAILQ_INSERT_TAIL(&sc->sc_epq[0].tx_qh, data, next);
 
-	usbd_transfer_start(sc->sc_xfer[MTW_BULK_RAW_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[MTW_BULK_RAW_TX]);
 
 	return (0);
 }
@@ -4586,9 +4586,9 @@ mtw_init_locked(struct mtw_softc *sc)
 	sc->sc_flags |= MTW_RUNNING;
 	sc->cmdq_run = MTW_CMDQ_GO;
 	for (i = 0; i != MTW_N_XFER; i++)
-		usbd_xfer_set_stall(sc->sc_xfer[i]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[i]);
 
-	usbd_transfer_start(sc->sc_xfer[MTW_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[MTW_BULK_RX]);
 
 	error = mtw_txrx_enable(sc);
 	if (error != 0) {

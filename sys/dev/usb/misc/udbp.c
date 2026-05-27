@@ -436,18 +436,18 @@ tr_setup:
 			return;
 		}
 		if (sc->sc_flags & UDBP_FLAG_READ_STALL) {
-			usbd_transfer_start(sc->sc_xfer[UDBP_T_RD_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_RD_CS]);
 			return;
 		}
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
 			sc->sc_flags |= UDBP_FLAG_READ_STALL;
-			usbd_transfer_start(sc->sc_xfer[UDBP_T_RD_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_RD_CS]);
 		}
 		return;
 	}
@@ -459,10 +459,10 @@ udbp_bulk_read_clear_stall_callback(struct usb_xfer *xfer, usb_error_t error)
 	struct udbp_softc *sc = usbd_xfer_softc(xfer);
 	struct usb_xfer *xfer_other = sc->sc_xfer[UDBP_T_RD];
 
-	if (usbd_clear_stall_callback(xfer, xfer_other)) {
+	if (usbd_clear_stall_callback_locked(xfer, xfer_other)) {
 		DPRINTF("stall cleared\n");
 		sc->sc_flags &= ~UDBP_FLAG_READ_STALL;
-		usbd_transfer_start(xfer_other);
+		usbd_transfer_start_locked(xfer_other);
 	}
 }
 
@@ -500,7 +500,7 @@ done:
 	}
 	/* start USB bulk-in transfer, if not already started */
 
-	usbd_transfer_start(sc->sc_xfer[UDBP_T_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_RD]);
 
 	mtx_unlock(&sc->sc_mtx);
 }
@@ -519,7 +519,7 @@ udbp_bulk_write_callback(struct usb_xfer *xfer, usb_error_t error)
 
 	case USB_ST_SETUP:
 		if (sc->sc_flags & UDBP_FLAG_WRITE_STALL) {
-			usbd_transfer_start(sc->sc_xfer[UDBP_T_WR_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_WR_CS]);
 			return;
 		}
 		/* get next mbuf, if any */
@@ -547,14 +547,14 @@ udbp_bulk_write_callback(struct usb_xfer *xfer, usb_error_t error)
 
 		m_freem(m);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
 			sc->sc_flags |= UDBP_FLAG_WRITE_STALL;
-			usbd_transfer_start(sc->sc_xfer[UDBP_T_WR_CS]);
+			usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_WR_CS]);
 		}
 		return;
 	}
@@ -566,10 +566,10 @@ udbp_bulk_write_clear_stall_callback(struct usb_xfer *xfer, usb_error_t error)
 	struct udbp_softc *sc = usbd_xfer_softc(xfer);
 	struct usb_xfer *xfer_other = sc->sc_xfer[UDBP_T_WR];
 
-	if (usbd_clear_stall_callback(xfer, xfer_other)) {
+	if (usbd_clear_stall_callback_locked(xfer, xfer_other)) {
 		DPRINTF("stall cleared\n");
 		sc->sc_flags &= ~UDBP_FLAG_WRITE_STALL;
-		usbd_transfer_start(xfer_other);
+		usbd_transfer_start_locked(xfer_other);
 	}
 }
 
@@ -727,7 +727,7 @@ ng_udbp_rcvdata(hook_p hook, item_p item)
 		/*
 		 * start bulk-out transfer, if not already started:
 		 */
-		usbd_transfer_start(sc->sc_xfer[UDBP_T_WR]);
+		usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_WR]);
 		error = 0;
 	}
 
@@ -795,10 +795,10 @@ ng_udbp_connect(hook_p hook)
 	    UDBP_FLAG_WRITE_STALL);
 
 	/* start bulk-in transfer */
-	usbd_transfer_start(sc->sc_xfer[UDBP_T_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_RD]);
 
 	/* start bulk-out transfer */
-	usbd_transfer_start(sc->sc_xfer[UDBP_T_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[UDBP_T_WR]);
 
 	mtx_unlock(&sc->sc_mtx);
 
@@ -823,12 +823,12 @@ ng_udbp_disconnect(hook_p hook)
 			error = EINVAL;
 		} else {
 			/* stop bulk-in transfer */
-			usbd_transfer_stop(sc->sc_xfer[UDBP_T_RD_CS]);
-			usbd_transfer_stop(sc->sc_xfer[UDBP_T_RD]);
+			usbd_transfer_stop_locked(sc->sc_xfer[UDBP_T_RD_CS]);
+			usbd_transfer_stop_locked(sc->sc_xfer[UDBP_T_RD]);
 
 			/* stop bulk-out transfer */
-			usbd_transfer_stop(sc->sc_xfer[UDBP_T_WR_CS]);
-			usbd_transfer_stop(sc->sc_xfer[UDBP_T_WR]);
+			usbd_transfer_stop_locked(sc->sc_xfer[UDBP_T_WR_CS]);
+			usbd_transfer_stop_locked(sc->sc_xfer[UDBP_T_WR]);
 
 			/* cleanup queues */
 			NG_BT_MBUFQ_DRAIN(&sc->sc_xmitq);

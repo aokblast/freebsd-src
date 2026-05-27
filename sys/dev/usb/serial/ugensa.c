@@ -232,8 +232,8 @@ ugensa_attach(device_t dev)
 
 			/* clear stall at first run */
 			mtx_lock(&sc->sc_mtx);
-			usbd_xfer_set_stall(ssc->sc_xfer[UGENSA_BULK_DT_WR]);
-			usbd_xfer_set_stall(ssc->sc_xfer[UGENSA_BULK_DT_RD]);
+			usbd_xfer_set_stall_locked(ssc->sc_xfer[UGENSA_BULK_DT_WR]);
+			usbd_xfer_set_stall_locked(ssc->sc_xfer[UGENSA_BULK_DT_RD]);
 			mtx_unlock(&sc->sc_mtx);
 
 			/* initialize port number */
@@ -314,14 +314,14 @@ tr_setup:
 		if (ucom_get_data(ssc->sc_ucom_ptr, pc, 0,
 		    UGENSA_BUF_SIZE, &actlen)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -345,13 +345,13 @@ ugensa_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -364,7 +364,7 @@ ugensa_start_read(struct ucom_softc *ucom)
 	struct ugensa_softc *sc = ucom->sc_parent;
 	struct ugensa_sub_softc *ssc = sc->sc_sub + ucom->sc_portno;
 
-	usbd_transfer_start(ssc->sc_xfer[UGENSA_BULK_DT_RD]);
+	usbd_transfer_start_locked(ssc->sc_xfer[UGENSA_BULK_DT_RD]);
 }
 
 static void
@@ -373,7 +373,7 @@ ugensa_stop_read(struct ucom_softc *ucom)
 	struct ugensa_softc *sc = ucom->sc_parent;
 	struct ugensa_sub_softc *ssc = sc->sc_sub + ucom->sc_portno;
 
-	usbd_transfer_stop(ssc->sc_xfer[UGENSA_BULK_DT_RD]);
+	usbd_transfer_stop_locked(ssc->sc_xfer[UGENSA_BULK_DT_RD]);
 }
 
 static void
@@ -382,7 +382,7 @@ ugensa_start_write(struct ucom_softc *ucom)
 	struct ugensa_softc *sc = ucom->sc_parent;
 	struct ugensa_sub_softc *ssc = sc->sc_sub + ucom->sc_portno;
 
-	usbd_transfer_start(ssc->sc_xfer[UGENSA_BULK_DT_WR]);
+	usbd_transfer_start_locked(ssc->sc_xfer[UGENSA_BULK_DT_WR]);
 }
 
 static void
@@ -391,7 +391,7 @@ ugensa_stop_write(struct ucom_softc *ucom)
 	struct ugensa_softc *sc = ucom->sc_parent;
 	struct ugensa_sub_softc *ssc = sc->sc_sub + ucom->sc_portno;
 
-	usbd_transfer_stop(ssc->sc_xfer[UGENSA_BULK_DT_WR]);
+	usbd_transfer_stop_locked(ssc->sc_xfer[UGENSA_BULK_DT_WR]);
 }
 
 static void

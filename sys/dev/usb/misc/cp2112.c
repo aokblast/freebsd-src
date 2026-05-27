@@ -749,7 +749,7 @@ cp2112iic_intr_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_copy_in(pc, 0, sc->io.out.data, sc->io.out.len);
 		usbd_xfer_set_frame_len(xfer, 0, sc->io.out.len);
 		usbd_xfer_set_frames(xfer, 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	case USB_ST_TRANSFERRED:
 		sc->io.out.error = 0;
@@ -763,7 +763,7 @@ cp2112iic_intr_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		cv_signal(&sc->io.cv);
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 		}
 		break;
 	}
@@ -829,7 +829,7 @@ cp2112iic_intr_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -841,7 +841,7 @@ tr_setup:
 		cv_signal(&sc->io.cv);
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -881,12 +881,12 @@ cp2112iic_send_req(struct cp2112iic_softc *sc, const void *data,
 
 	DTRACE_PROBE1(send__req, uint8_t, *(const uint8_t *)data);
 
-	usbd_transfer_start(sc->xfers[CP2112_INTR_OUT]);
+	usbd_transfer_start_locked(sc->xfers[CP2112_INTR_OUT]);
 
 	while (!sc->io.out.done)
 		cv_wait(&sc->io.cv, &sc->io.lock);
 
-	usbd_transfer_stop(sc->xfers[CP2112_INTR_OUT]);
+	usbd_transfer_stop_locked(sc->xfers[CP2112_INTR_OUT]);
 
 	sc->io.out.done = 0;
 	sc->io.out.data = NULL;
@@ -1319,7 +1319,7 @@ cp2112iic_attach(device_t dev)
 
 	/* Prepare to receive interrupts. */
 	mtx_lock(&sc->io.lock);
-	usbd_transfer_start(sc->xfers[CP2112_INTR_IN]);
+	usbd_transfer_start_locked(sc->xfers[CP2112_INTR_IN]);
 	mtx_unlock(&sc->io.lock);
 
 	sc->iicbus_dev = device_add_child(dev, "iicbus", DEVICE_UNIT_ANY);
@@ -1348,7 +1348,7 @@ cp2112iic_detach(device_t dev)
 		return (err);
 
 	mtx_lock(&sc->io.lock);
-	usbd_transfer_stop(sc->xfers[CP2112_INTR_IN]);
+	usbd_transfer_stop_locked(sc->xfers[CP2112_INTR_IN]);
 	mtx_unlock(&sc->io.lock);
 	usbd_transfer_unsetup(sc->xfers, nitems(cp2112iic_config));
 

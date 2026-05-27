@@ -282,7 +282,7 @@ static void
 bbb_transfer_start(struct bbb_transfer *sc, uint8_t xfer_index)
 {
 	sc->state = xfer_index;
-	usbd_transfer_start(sc->xfer[xfer_index]);
+	usbd_transfer_start_locked(sc->xfer[xfer_index]);
 }
 
 static void
@@ -291,7 +291,7 @@ bbb_data_clear_stall_callback(struct usb_xfer *xfer,
 {
 	struct bbb_transfer *sc = usbd_xfer_softc(xfer);
 
-	if (usbd_clear_stall_callback(xfer, sc->xfer[stall_xfer])) {
+	if (usbd_clear_stall_callback_locked(xfer, sc->xfer[stall_xfer])) {
 		switch (USB_GET_STATE(xfer)) {
 		case USB_ST_SETUP:
 		case USB_ST_TRANSFERRED:
@@ -333,7 +333,7 @@ bbb_command_callback(struct usb_xfer *xfer, usb_error_t error)
 		}
 		usbd_xfer_set_frame_len(xfer, 0,
 		    sizeof(struct bbb_cbw));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -374,7 +374,7 @@ bbb_data_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		}
 		usbd_xfer_set_timeout(xfer, sc->data_timeout);
 		usbd_xfer_set_frame_data(xfer, 0, sc->data_ptr, max_bulk);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -426,7 +426,7 @@ bbb_data_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		}
 		usbd_xfer_set_timeout(xfer, sc->data_timeout);
 		usbd_xfer_set_frame_data(xfer, 0, sc->data_ptr, max_bulk);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -472,7 +472,7 @@ bbb_status_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 		usbd_xfer_set_frame_len(xfer, 0,
 		    sizeof(struct bbb_csw));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:
@@ -521,7 +521,7 @@ bbb_raw_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		}
 		usbd_xfer_set_timeout(xfer, sc->data_timeout);
 		usbd_xfer_set_frame_data(xfer, 0, sc->data_ptr, max_bulk);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -556,9 +556,9 @@ bbb_command_start(struct bbb_transfer *sc, uint8_t dir, uint8_t lun,
 	DPRINTFN(1, "SCSI cmd = %*D\n", (int)cmd_len, (char *)sc->cbw->CBWCDB, ":");
 
 	USB_MTX_LOCK(&sc->mtx);
-	usbd_transfer_start(sc->xfer[sc->state]);
+	usbd_transfer_start_locked(sc->xfer[sc->state]);
 
-	while (usbd_transfer_pending(sc->xfer[sc->state])) {
+	while (usbd_transfer_pending_locked(sc->xfer[sc->state])) {
 		cv_wait(&sc->cv, &sc->mtx);
 	}
 	USB_MTX_UNLOCK(&sc->mtx);
@@ -587,8 +587,8 @@ bbb_raw_write(struct bbb_transfer *sc, const void *data_ptr, size_t data_len,
 	    (const char *)data_ptr, ":");
 
 	USB_MTX_LOCK(&sc->mtx);
-	usbd_transfer_start(sc->xfer[0]);
-	while (usbd_transfer_pending(sc->xfer[0]))
+	usbd_transfer_start_locked(sc->xfer[0]);
+	while (usbd_transfer_pending_locked(sc->xfer[0]))
 		cv_wait(&sc->cv, &sc->mtx);
 	USB_MTX_UNLOCK(&sc->mtx);
 	return (sc->error);
@@ -615,7 +615,7 @@ bbb_attach(struct usb_device *udev, uint8_t iface_index,
 	 * Make sure any driver which is hooked up to this interface,
 	 * like umass is gone:
 	 */
-	usb_detach_device(udev, iface_index, 0);
+	usb_detach_device_locked(udev, iface_index, 0);
 
 	if (do_unlock)
 		usbd_enum_unlock(udev);

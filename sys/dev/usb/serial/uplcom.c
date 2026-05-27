@@ -505,8 +505,8 @@ uplcom_attach(device_t dev)
 	if (sc->sc_chiptype == TYPE_PL2303) {
 		/* HX variants seem to lock up after a clear stall request. */
 		mtx_lock(&sc->sc_mtx);
-		usbd_xfer_set_stall(sc->sc_xfer[UPLCOM_BULK_DT_WR]);
-		usbd_xfer_set_stall(sc->sc_xfer[UPLCOM_BULK_DT_RD]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[UPLCOM_BULK_DT_WR]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[UPLCOM_BULK_DT_RD]);
 		mtx_unlock(&sc->sc_mtx);
 	} else if (sc->sc_chiptype == TYPE_PL2303HX ||
 		   sc->sc_chiptype == TYPE_PL2303HXD) {
@@ -967,10 +967,10 @@ uplcom_start_read(struct ucom_softc *ucom)
 	struct uplcom_softc *sc = ucom->sc_parent;
 
 	/* start interrupt endpoint */
-	usbd_transfer_start(sc->sc_xfer[UPLCOM_INTR_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UPLCOM_INTR_DT_RD]);
 
 	/* start read endpoint */
-	usbd_transfer_start(sc->sc_xfer[UPLCOM_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UPLCOM_BULK_DT_RD]);
 }
 
 static void
@@ -979,10 +979,10 @@ uplcom_stop_read(struct ucom_softc *ucom)
 	struct uplcom_softc *sc = ucom->sc_parent;
 
 	/* stop interrupt endpoint */
-	usbd_transfer_stop(sc->sc_xfer[UPLCOM_INTR_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UPLCOM_INTR_DT_RD]);
 
 	/* stop read endpoint */
-	usbd_transfer_stop(sc->sc_xfer[UPLCOM_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UPLCOM_BULK_DT_RD]);
 }
 
 static void
@@ -990,7 +990,7 @@ uplcom_start_write(struct ucom_softc *ucom)
 {
 	struct uplcom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_xfer[UPLCOM_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[UPLCOM_BULK_DT_WR]);
 }
 
 static void
@@ -998,7 +998,7 @@ uplcom_stop_write(struct ucom_softc *ucom)
 {
 	struct uplcom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_xfer[UPLCOM_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UPLCOM_BULK_DT_WR]);
 }
 
 static void
@@ -1065,13 +1065,13 @@ uplcom_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1095,14 +1095,14 @@ tr_setup:
 			DPRINTF("actlen = %d\n", actlen);
 
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1126,13 +1126,13 @@ uplcom_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;

@@ -285,8 +285,8 @@ udl_callout(void *arg)
 
 		if (sc->sc_sync_off >= max)
 			sc->sc_sync_off = 0;
-		usbd_transfer_start(sc->sc_xfer[UDL_BULK_WRITE_0]);
-		usbd_transfer_start(sc->sc_xfer[UDL_BULK_WRITE_1]);
+		usbd_transfer_start_locked(sc->sc_xfer[UDL_BULK_WRITE_0]);
+		usbd_transfer_start_locked(sc->sc_xfer[UDL_BULK_WRITE_1]);
 	} else {
 		fps = 1;
 	}
@@ -542,8 +542,8 @@ udl_cmd_buf_send(struct udl_softc *sc, struct udl_cmd_buf *cb)
 		udl_cmd_insert_int_1(cb, UDL_BULK_CMD_EOC);
 
 		TAILQ_INSERT_TAIL(&sc->sc_cmd_buf_pending, cb, entry);
-		usbd_transfer_start(sc->sc_xfer[UDL_BULK_WRITE_0]);
-		usbd_transfer_start(sc->sc_xfer[UDL_BULK_WRITE_1]);
+		usbd_transfer_start_locked(sc->sc_xfer[UDL_BULK_WRITE_0]);
+		usbd_transfer_start_locked(sc->sc_xfer[UDL_BULK_WRITE_1]);
 	}
 	UDL_UNLOCK(sc);
 }
@@ -613,14 +613,14 @@ tr_setup:
 		}
 		if (i != 0) {
 			usbd_xfer_set_frames(xfer, i);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 	default:
 		TAILQ_CONCAT(&sc->sc_cmd_buf_free, phead, entry);
 		if (error != USB_ERR_CANCELLED) {
 			/* try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

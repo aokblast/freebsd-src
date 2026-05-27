@@ -336,7 +336,7 @@ ucycom_start_read(struct ucom_softc *ucom)
 {
 	struct ucycom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_xfer[UCYCOM_INTR_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UCYCOM_INTR_RD]);
 }
 
 static void
@@ -344,7 +344,7 @@ ucycom_stop_read(struct ucom_softc *ucom)
 {
 	struct ucycom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_xfer[UCYCOM_INTR_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UCYCOM_INTR_RD]);
 }
 
 static void
@@ -352,7 +352,7 @@ ucycom_start_write(struct ucom_softc *ucom)
 {
 	struct ucycom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_xfer[UCYCOM_CTRL_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[UCYCOM_CTRL_RD]);
 }
 
 static void
@@ -360,7 +360,7 @@ ucycom_stop_write(struct ucom_softc *ucom)
 {
 	struct ucycom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_xfer[UCYCOM_CTRL_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UCYCOM_CTRL_RD]);
 }
 
 static void
@@ -420,7 +420,7 @@ tr_transferred:
 			usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 			usbd_xfer_set_frame_len(xfer, 1, sc->sc_olen);
 			usbd_xfer_set_frames(xfer, sc->sc_olen ? 2 : 1);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -588,13 +588,13 @@ ucycom_intr_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, sc->sc_ilen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;

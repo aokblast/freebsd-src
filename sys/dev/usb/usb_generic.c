@@ -225,8 +225,8 @@ ugen_close(struct usb_fifo *f, int fflags)
 	/* cleanup */
 
 	mtx_lock(f->priv_mtx);
-	usbd_transfer_stop(f->xfer[0]);
-	usbd_transfer_stop(f->xfer[1]);
+	usbd_transfer_stop_locked(f->xfer[0]);
+	usbd_transfer_stop_locked(f->xfer[1]);
 	mtx_unlock(f->priv_mtx);
 
 	usbd_transfer_unsetup(f->xfer, 2);
@@ -387,8 +387,8 @@ ugen_start_read(struct usb_fifo *f)
 		usb_fifo_put_data_error(f);
 	}
 	/* start transfers */
-	usbd_transfer_start(f->xfer[0]);
-	usbd_transfer_start(f->xfer[1]);
+	usbd_transfer_start_locked(f->xfer[0]);
+	usbd_transfer_start_locked(f->xfer[1]);
 }
 
 static void
@@ -400,16 +400,16 @@ ugen_start_write(struct usb_fifo *f)
 		usb_fifo_get_data_error(f);
 	}
 	/* start transfers */
-	usbd_transfer_start(f->xfer[0]);
-	usbd_transfer_start(f->xfer[1]);
+	usbd_transfer_start_locked(f->xfer[0]);
+	usbd_transfer_start_locked(f->xfer[1]);
 }
 
 static void
 ugen_stop_io(struct usb_fifo *f)
 {
 	/* stop transfers */
-	usbd_transfer_stop(f->xfer[0]);
-	usbd_transfer_stop(f->xfer[1]);
+	usbd_transfer_stop_locked(f->xfer[0]);
+	usbd_transfer_stop_locked(f->xfer[1]);
 }
 
 static void
@@ -442,13 +442,13 @@ ugen_ctrl_read_callback(struct usb_xfer *xfer, usb_error_t error)
 
 	case USB_ST_SETUP:
 		if (f->flag_stall) {
-			usbd_transfer_start(f->xfer[1]);
+			usbd_transfer_start_locked(f->xfer[1]);
 			break;
 		}
 		USB_IF_POLL(&f->free_q, m);
 		if (m) {
 			usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -458,7 +458,7 @@ ugen_ctrl_read_callback(struct usb_xfer *xfer, usb_error_t error)
 			usb_fifo_put_data(f, xfer->frbuffers, 0, 0, 1);
 			f->flag_stall = 1;
 			f->fifo_zlp = 0;
-			usbd_transfer_start(f->xfer[1]);
+			usbd_transfer_start_locked(f->xfer[1]);
 		}
 		break;
 	}
@@ -480,7 +480,7 @@ ugen_ctrl_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		 * callback and solve the situation.
 		 */
 		if (f->flag_stall) {
-			usbd_transfer_start(f->xfer[1]);
+			usbd_transfer_start_locked(f->xfer[1]);
 			break;
 		}
 		/*
@@ -489,14 +489,14 @@ ugen_ctrl_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (usb_fifo_get_data(f, xfer->frbuffers, 0,
 		    xfer->max_data_length, &actlen, 0)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
 	default:			/* Error */
 		if (xfer->error != USB_ERR_CANCELLED) {
 			f->flag_stall = 1;
-			usbd_transfer_start(f->xfer[1]);
+			usbd_transfer_start_locked(f->xfer[1]);
 		}
 		break;
 	}
@@ -512,10 +512,10 @@ ugen_read_clear_stall_callback(struct usb_xfer *xfer, usb_error_t error)
 		/* nothing to do */
 		return;
 	}
-	if (usbd_clear_stall_callback(xfer, xfer_other)) {
+	if (usbd_clear_stall_callback_locked(xfer, xfer_other)) {
 		DPRINTFN(5, "f=%p: stall cleared\n", f);
 		f->flag_stall = 0;
-		usbd_transfer_start(xfer_other);
+		usbd_transfer_start_locked(xfer_other);
 	}
 }
 
@@ -529,10 +529,10 @@ ugen_write_clear_stall_callback(struct usb_xfer *xfer, usb_error_t error)
 		/* nothing to do */
 		return;
 	}
-	if (usbd_clear_stall_callback(xfer, xfer_other)) {
+	if (usbd_clear_stall_callback_locked(xfer, xfer_other)) {
 		DPRINTFN(5, "f=%p: stall cleared\n", f);
 		f->flag_stall = 0;
-		usbd_transfer_start(xfer_other);
+		usbd_transfer_start_locked(xfer_other);
 	}
 }
 
@@ -564,7 +564,7 @@ tr_setup:
 			/* setup size for next transfer */
 			usbd_xfer_set_frame_len(xfer, n, xfer->max_frame_size);
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -604,7 +604,7 @@ tr_setup:
 			/* fill in zero frames */
 			usbd_xfer_set_frame_len(xfer, n, 0);
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -1124,7 +1124,7 @@ usb_fs_clear_stall_sync(struct usb_fifo *f, struct usb_fs_clear_stall_sync *psta
 		return (EINVAL);
 
 	mtx_lock(f->priv_mtx);
-	error = usbd_transfer_pending(f->fs_xfer[pstall->ep_index]);
+	error = usbd_transfer_pending_locked(f->fs_xfer[pstall->ep_index]);
 	mtx_unlock(f->priv_mtx);
 
 	if (error)
@@ -1250,7 +1250,7 @@ ugen_fs_copy_in(struct usb_fifo *f, uint8_t ep_index)
 		mtx_unlock(f->priv_mtx);
 		return (EINVAL);
 	}
-	if (usbd_transfer_pending(xfer)) {
+	if (usbd_transfer_pending_locked(xfer)) {
 		mtx_unlock(f->priv_mtx);
 		return (EBUSY);		/* should not happen */
 	}
@@ -1342,7 +1342,7 @@ ugen_fs_copy_in(struct usb_fifo *f, uint8_t ep_index)
 		xfer->flags.force_short_xfer = 0;
 
 	if (fs_ep.flags & USB_FS_FLAG_CLEAR_STALL)
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 	else
 		xfer->flags.stall_pipe = 0;
 
@@ -1537,7 +1537,7 @@ ugen_fs_copy_out(struct usb_fifo *f, uint8_t ep_index)
 		mtx_unlock(f->priv_mtx);
 		DPRINTF("Returning fake cancel event\n");
 		return (ugen_fs_copy_out_cancelled(f, ep_index));
-	} else if (usbd_transfer_pending(xfer)) {
+	} else if (usbd_transfer_pending_locked(xfer)) {
 		mtx_unlock(f->priv_mtx);
 		return (EBUSY);		/* should not happen */
 	}
@@ -1702,7 +1702,7 @@ ugen_ioctl(struct usb_fifo *f, u_long cmd, void *addr, int fflags)
 		if (error == 0) {
 			mtx_lock(f->priv_mtx);
 			xfer = f->fs_xfer[u.pstart->ep_index];
-			usbd_transfer_start(xfer);
+			usbd_transfer_start_locked(xfer);
 			mtx_unlock(f->priv_mtx);
 		}
 		sx_sunlock(&f->fs_fastpath_lock);
@@ -1715,8 +1715,8 @@ ugen_ioctl(struct usb_fifo *f, u_long cmd, void *addr, int fflags)
 		} else {
 			error = 0;
 			xfer = f->fs_xfer[u.pstart->ep_index];
-			if (usbd_transfer_pending(xfer)) {
-				usbd_transfer_stop(xfer);
+			if (usbd_transfer_pending_locked(xfer)) {
+				usbd_transfer_stop_locked(xfer);
 
 				/*
 				 * Check if the USB transfer was
@@ -2368,7 +2368,7 @@ ugen_ioctl_post(struct usb_fifo *f, u_long cmd, void *addr, int fflags)
 		/*
 		 * Detach the currently attached driver.
 		 */
-		usb_detach_device(f->udev, n, 0);
+		usb_detach_device_locked(f->udev, n, 0);
 
 		/*
 		 * Set parent to self, this should keep attach away
@@ -2457,7 +2457,7 @@ ugen_ctrl_fs_callback(struct usb_xfer *xfer, usb_error_t error)
 
 	switch (USB_GET_STATE(xfer)) {
 	case USB_ST_SETUP:
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		ugen_fs_set_complete(xfer->priv_sc, USB_P2U(xfer->priv_fifo));

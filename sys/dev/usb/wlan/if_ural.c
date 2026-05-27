@@ -815,7 +815,7 @@ tr_setup:
 			usbd_xfer_set_frame_len(xfer, 0, len);
 			usbd_xfer_set_priv(xfer, data);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		ural_start(sc);
 		break;
@@ -832,7 +832,7 @@ tr_setup:
 
 		if (error == USB_ERR_STALLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		if (error == USB_ERR_TIMEOUT)
@@ -916,7 +916,7 @@ ural_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		/*
 		 * At the end of a USB callback it is always safe to unlock
@@ -940,7 +940,7 @@ tr_setup:
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1053,7 +1053,7 @@ ural_tx_bcn(struct ural_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 	    m0->m_pkthdr.len, tp->mgmtrate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[URAL_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[URAL_BULK_WR]);
 
 	return (0);
 }
@@ -1110,7 +1110,7 @@ ural_tx_mgt(struct ural_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 	    m0->m_pkthdr.len, tp->mgmtrate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[URAL_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[URAL_BULK_WR]);
 
 	return 0;
 }
@@ -1147,7 +1147,7 @@ ural_sendprot(struct ural_softc *sc,
 	ural_setup_tx_desc(sc, &data->desc, flags, mprot->m_pkthdr.len, protrate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[URAL_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[URAL_BULK_WR]);
 
 	return 0;
 }
@@ -1200,7 +1200,7 @@ ural_tx_raw(struct ural_softc *sc, struct mbuf *m0, struct ieee80211_node *ni,
 	    m0->m_pkthdr.len, rate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[URAL_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[URAL_BULK_WR]);
 
 	return 0;
 }
@@ -1285,7 +1285,7 @@ ural_tx_data(struct ural_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 	    m0->m_pkthdr.len, rate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[URAL_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[URAL_BULK_WR]);
 
 	return 0;
 }
@@ -2080,8 +2080,8 @@ ural_init(struct ural_softc *sc)
 	ural_write(sc, RAL_TXRX_CSR2, tmp);
 
 	sc->sc_running = 1;
-	usbd_xfer_set_stall(sc->sc_xfer[URAL_BULK_WR]);
-	usbd_transfer_start(sc->sc_xfer[URAL_BULK_RD]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[URAL_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[URAL_BULK_RD]);
 	return;
 
 fail:	ural_stop(sc);

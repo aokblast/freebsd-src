@@ -107,13 +107,13 @@ static uss820dci_cmd_t uss820dci_setup_rx;
 static uss820dci_cmd_t uss820dci_data_rx;
 static uss820dci_cmd_t uss820dci_data_tx;
 static uss820dci_cmd_t uss820dci_data_tx_sync;
-static void	uss820dci_device_done(struct usb_xfer *, usb_error_t);
+static void	uss820dci_device_done_locked(struct usb_xfer *, usb_error_t);
 static void	uss820dci_do_poll(struct usb_bus *);
 static void	uss820dci_standard_done(struct usb_xfer *);
 static void	uss820dci_intr_set(struct usb_xfer *, uint8_t);
 static void	uss820dci_update_shared_1(struct uss820dci_softc *, uint8_t,
 		    uint8_t, uint8_t);
-static void	uss820dci_root_intr(struct uss820dci_softc *);
+static void	uss820dci_root_intr_locked(struct uss820dci_softc *);
 
 /*
  * Here is a list of what the USS820D chip can support. The main
@@ -830,7 +830,7 @@ uss820dci_interrupt(void *arg)
 			DPRINTF("real bus interrupt 0x%02x\n", ssr);
 
 			/* complete root HUB interrupt endpoint */
-			uss820dci_root_intr(sc);
+			uss820dci_root_intr_locked(sc);
 		}
 	}
 	/* acknowledge all SBI interrupts */
@@ -1009,7 +1009,7 @@ uss820dci_setup_standard_chain(struct usb_xfer *xfer)
 }
 
 static void
-uss820dci_timeout(void *arg)
+uss820dci_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -1018,7 +1018,7 @@ uss820dci_timeout(void *arg)
 	USB_BUS_LOCK_ASSERT(xfer->xroot->bus, MA_OWNED);
 
 	/* transfer is transferred */
-	uss820dci_device_done(xfer, USB_ERR_TIMEOUT);
+	uss820dci_device_done_locked(xfer, USB_ERR_TIMEOUT);
 }
 
 static void
@@ -1081,19 +1081,19 @@ uss820dci_start_standard_chain(struct usb_xfer *xfer)
 		uss820dci_intr_set(xfer, 1);
 
 		/* put transfer on interrupt queue */
-		usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+		usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 		/* start timeout, if any */
 		if (xfer->timeout != 0) {
-			usbd_transfer_timeout_ms(xfer,
-			    &uss820dci_timeout, xfer->timeout);
+			usbd_transfer_timeout_ms_locked(xfer,
+			    &uss820dci_timeout_locked, xfer->timeout);
 		}
 	}
 	USB_BUS_SPIN_UNLOCK(&sc->sc_bus);
 }
 
 static void
-uss820dci_root_intr(struct uss820dci_softc *sc)
+uss820dci_root_intr_locked(struct uss820dci_softc *sc)
 {
 	DPRINTFN(9, "\n");
 
@@ -1102,7 +1102,7 @@ uss820dci_root_intr(struct uss820dci_softc *sc)
 	/* set port bit */
 	sc->sc_hub_idata[0] = 0x02;	/* we only have one port */
 
-	uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+	uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 	    sizeof(sc->sc_hub_idata));
 }
 
@@ -1207,17 +1207,17 @@ uss820dci_standard_done(struct usb_xfer *xfer)
 		err = uss820dci_standard_done_sub(xfer);
 	}
 done:
-	uss820dci_device_done(xfer, err);
+	uss820dci_device_done_locked(xfer, err);
 }
 
 /*------------------------------------------------------------------------*
- *	uss820dci_device_done
+ *	uss820dci_device_done_locked
  *
  * NOTE: this function can be called more than one time on the
  * same USB transfer!
  *------------------------------------------------------------------------*/
 static void
-uss820dci_device_done(struct usb_xfer *xfer, usb_error_t error)
+uss820dci_device_done_locked(struct usb_xfer *xfer, usb_error_t error)
 {
 	struct uss820dci_softc *sc = USS820_DCI_BUS2SC(xfer->xroot->bus);
 
@@ -1232,7 +1232,7 @@ uss820dci_device_done(struct usb_xfer *xfer, usb_error_t error)
 		uss820dci_intr_set(xfer, 0);
 	}
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 
 	USB_BUS_SPIN_UNLOCK(&sc->sc_bus);
 }
@@ -1240,11 +1240,11 @@ uss820dci_device_done(struct usb_xfer *xfer, usb_error_t error)
 static void
 uss820dci_xfer_stall(struct usb_xfer *xfer)
 {
-	uss820dci_device_done(xfer, USB_ERR_STALLED);
+	uss820dci_device_done_locked(xfer, USB_ERR_STALLED);
 }
 
 static void
-uss820dci_set_stall(struct usb_device *udev,
+uss820dci_set_stall_locked(struct usb_device *udev,
     struct usb_endpoint *ep, uint8_t *did_stall)
 {
 	struct uss820dci_softc *sc;
@@ -1332,7 +1332,7 @@ uss820dci_clear_stall_sub(struct uss820dci_softc *sc,
 }
 
 static void
-uss820dci_clear_stall(struct usb_device *udev, struct usb_endpoint *ep)
+uss820dci_clear_stall_locked(struct usb_device *udev, struct usb_endpoint *ep)
 {
 	struct uss820dci_softc *sc;
 	struct usb_endpoint_descriptor *ed;
@@ -1581,7 +1581,7 @@ uss820dci_device_bulk_open(struct usb_xfer *xfer)
 static void
 uss820dci_device_bulk_close(struct usb_xfer *xfer)
 {
-	uss820dci_device_done(xfer, USB_ERR_CANCELLED);
+	uss820dci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1618,7 +1618,7 @@ uss820dci_device_ctrl_open(struct usb_xfer *xfer)
 static void
 uss820dci_device_ctrl_close(struct usb_xfer *xfer)
 {
-	uss820dci_device_done(xfer, USB_ERR_CANCELLED);
+	uss820dci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1655,7 +1655,7 @@ uss820dci_device_intr_open(struct usb_xfer *xfer)
 static void
 uss820dci_device_intr_close(struct usb_xfer *xfer)
 {
-	uss820dci_device_done(xfer, USB_ERR_CANCELLED);
+	uss820dci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1692,7 +1692,7 @@ uss820dci_device_isoc_fs_open(struct usb_xfer *xfer)
 static void
 uss820dci_device_isoc_fs_close(struct usb_xfer *xfer)
 {
-	uss820dci_device_done(xfer, USB_ERR_CANCELLED);
+	uss820dci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -1813,7 +1813,7 @@ USB_MAKE_STRING_DESC(STRING_VENDOR, uss820dci_vendor);
 USB_MAKE_STRING_DESC(STRING_PRODUCT, uss820dci_product);
 
 static usb_error_t
-uss820dci_roothub_exec(struct usb_device *udev,
+uss820dci_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	struct uss820dci_softc *sc = USS820_DCI_BUS2SC(udev->bus);
@@ -2372,9 +2372,9 @@ static const struct usb_bus_methods uss820dci_bus_methods =
 	.xfer_unsetup = &uss820dci_xfer_unsetup,
 	.get_hw_ep_profile = &uss820dci_get_hw_ep_profile,
 	.xfer_stall = &uss820dci_xfer_stall,
-	.set_stall = &uss820dci_set_stall,
-	.clear_stall = &uss820dci_clear_stall,
-	.roothub_exec = &uss820dci_roothub_exec,
+	.set_stall = &uss820dci_set_stall_locked,
+	.clear_stall = &uss820dci_clear_stall_locked,
+	.roothub_exec = &uss820dci_roothub_exec_locked,
 	.xfer_poll = &uss820dci_do_poll,
 	.set_hw_power_sleep = uss820dci_set_hw_power_sleep,
 };

@@ -801,7 +801,7 @@ ure_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(ue);
 		return;
 
@@ -811,7 +811,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -924,7 +924,7 @@ pkterror:
 		/* Set frame length. */
 		usbd_xfer_set_frame_len(xfer, 0, pos);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		return;
 
@@ -942,7 +942,7 @@ pkterror:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 	}
@@ -1212,7 +1212,7 @@ ure_init(struct usb_ether *ue)
 	/*  Configure RX filters. */
 	ure_rxfilter(ue);
 
-	usbd_xfer_set_stall(sc->sc_tx_xfer[0]);
+	usbd_xfer_set_stall_locked(sc->sc_tx_xfer[0]);
 
 	/* Indicate we are up and running. */
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
@@ -1319,11 +1319,11 @@ ure_start(struct usb_ether *ue)
 	if (!sc->sc_rxstarted) {
 		sc->sc_rxstarted = 1;
 		for (i = 0; i != URE_MAX_RX; i++)
-			usbd_transfer_start(sc->sc_rx_xfer[i]);
+			usbd_transfer_start_locked(sc->sc_rx_xfer[i]);
 	}
 
 	for (i = 0; i != URE_MAX_TX; i++)
-		usbd_transfer_start(sc->sc_tx_xfer[i]);
+		usbd_transfer_start_locked(sc->sc_tx_xfer[i]);
 }
 
 static void
@@ -2069,9 +2069,9 @@ ure_stop(struct usb_ether *ue)
 	 * stop all the transfers, if not already stopped:
 	 */
 	for (int i = 0; i < URE_MAX_RX; i++)
-		usbd_transfer_stop(sc->sc_rx_xfer[i]);
+		usbd_transfer_stop_locked(sc->sc_rx_xfer[i]);
 	for (int i = 0; i < URE_MAX_TX; i++)
-		usbd_transfer_stop(sc->sc_tx_xfer[i]);
+		usbd_transfer_stop_locked(sc->sc_tx_xfer[i]);
 }
 
 static void

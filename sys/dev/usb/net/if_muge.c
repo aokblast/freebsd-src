@@ -1325,14 +1325,14 @@ muge_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		uether_rxflush(ue);
 		return;
 	default:
 		if (error != USB_ERR_CANCELLED) {
 			muge_warn_printf(sc, "bulk read error, %s\n",
 			    usbd_errstr(error));
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1432,7 +1432,7 @@ tr_setup:
 		if (nframes != 0) {
 			muge_dbg_printf(sc, "USB TRANSFER submit attempt\n");
 			usbd_xfer_set_frames(xfer, nframes);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 			if_setdrvflagbits(ifp, IFF_DRV_OACTIVE, 0);
 		}
 		return;
@@ -1444,7 +1444,7 @@ tr_setup:
 		if (error != USB_ERR_CANCELLED) {
 			muge_err_printf(sc,
 			    "usb error on tx: %s\n", usbd_errstr(error));
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -1649,8 +1649,8 @@ muge_start(struct usb_ether *ue)
 	/*
 	 * Start the USB transfers, if not already started.
 	 */
-	usbd_transfer_start(sc->sc_xfer[MUGE_BULK_DT_RD]);
-	usbd_transfer_start(sc->sc_xfer[MUGE_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[MUGE_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[MUGE_BULK_DT_WR]);
 }
 
 /**
@@ -2048,7 +2048,7 @@ muge_init(struct usb_ether *ue)
 	/* TCP/UDP checksum offload engines. */
 	muge_sethwcsum(sc);
 
-	usbd_xfer_set_stall(sc->sc_xfer[MUGE_BULK_DT_WR]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[MUGE_BULK_DT_WR]);
 
 	/* Indicate we are up and running. */
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
@@ -2076,8 +2076,8 @@ muge_stop(struct usb_ether *ue)
 	/*
 	 * Stop all the transfers, if not already stopped.
 	 */
-	usbd_transfer_stop(sc->sc_xfer[MUGE_BULK_DT_WR]);
-	usbd_transfer_stop(sc->sc_xfer[MUGE_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[MUGE_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[MUGE_BULK_DT_RD]);
 }
 
 /**

@@ -237,8 +237,8 @@ g_audio_timeout(void *arg)
 	sc->sc_pattern_len = strlen(sc->sc_pattern);
 
 	if (sc->sc_mode != G_AUDIO_MODE_LOOP) {
-		usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC0_WR]);
-		usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC1_WR]);
+		usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC0_WR]);
+		usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC1_WR]);
 	}
 	g_audio_timeout_reset(sc);
 }
@@ -335,11 +335,11 @@ g_audio_attach(device_t dev)
 
 	mtx_lock(&sc->sc_mtx);
 
-	usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC0_RD]);
-	usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC1_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC0_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC1_RD]);
 
-	usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC0_WR]);
-	usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC1_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC0_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC1_WR]);
 
 	g_audio_timeout_reset(sc);
 
@@ -472,7 +472,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -503,8 +503,8 @@ g_audio_isoc_read_callback(struct usb_xfer *xfer, usb_error_t error)
 			sc->sc_data_len[nr][i] = usbd_xfer_frame_len(xfer, i);
 		}
 
-		usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC0_WR]);
-		usbd_transfer_start(sc->sc_xfer[G_AUDIO_ISOC1_WR]);
+		usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC0_WR]);
+		usbd_transfer_start_locked(sc->sc_xfer[G_AUDIO_ISOC1_WR]);
 
 		break;
 
@@ -519,7 +519,7 @@ tr_setup:
 			ptr += (G_AUDIO_BUFSIZE / G_AUDIO_FRAMES) / 2;
 		}
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -527,7 +527,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

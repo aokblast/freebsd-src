@@ -1190,7 +1190,7 @@ umass_transfer_start(struct umass_softc *sc, uint8_t xfer_index)
 
 	if (sc->sc_xfer[xfer_index]) {
 		sc->sc_last_xfer_index = xfer_index;
-		usbd_transfer_start(sc->sc_xfer[xfer_index]);
+		usbd_transfer_start_locked(sc->sc_xfer[xfer_index]);
 	} else {
 		umass_cancel_ccb(sc);
 	}
@@ -1204,7 +1204,7 @@ umass_reset(struct umass_softc *sc)
 	/*
 	 * stop the last transfer, if not already stopped:
 	 */
-	usbd_transfer_stop(sc->sc_xfer[sc->sc_last_xfer_index]);
+	usbd_transfer_stop_locked(sc->sc_xfer[sc->sc_last_xfer_index]);
 	umass_transfer_start(sc, 0);
 }
 
@@ -1283,7 +1283,7 @@ umass_t_bbb_reset1_callback(struct usb_xfer *xfer, usb_error_t error)
 
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 		usbd_xfer_set_frames(xfer, 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
@@ -1319,7 +1319,7 @@ tr_transferred:
 		return;
 
 	case USB_ST_SETUP:
-		if (usbd_clear_stall_callback(xfer, sc->sc_xfer[stall_xfer])) {
+		if (usbd_clear_stall_callback_locked(xfer, sc->sc_xfer[stall_xfer])) {
 			goto tr_transferred;
 		}
 		return;
@@ -1406,7 +1406,7 @@ umass_t_bbb_command_callback(struct usb_xfer *xfer, usb_error_t error)
 			usbd_copy_in(pc, 0, &sc->cbw, sizeof(sc->cbw));
 			usbd_xfer_set_frame_len(xfer, 0, sizeof(sc->cbw));
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
@@ -1451,7 +1451,7 @@ umass_t_bbb_data_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_transfer.data_ptr,
 		    max_bulk);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
@@ -1506,7 +1506,7 @@ umass_t_bbb_data_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_transfer.data_ptr,
 		    max_bulk);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
@@ -1624,7 +1624,7 @@ umass_t_bbb_status_callback(struct usb_xfer *xfer, usb_error_t error)
 
 	case USB_ST_SETUP:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:
@@ -1668,7 +1668,7 @@ umass_command_start(struct umass_softc *sc, uint8_t dir,
 	sc->sc_transfer.ccb = ccb;
 
 	if (sc->sc_xfer[sc->sc_last_xfer_index]) {
-		usbd_transfer_start(sc->sc_xfer[sc->sc_last_xfer_index]);
+		usbd_transfer_start_locked(sc->sc_xfer[sc->sc_last_xfer_index]);
 	} else {
 		umass_cancel_ccb(sc);
 	}
@@ -1781,7 +1781,7 @@ umass_t_cbi_reset1_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 		usbd_xfer_set_frame_len(xfer, 1, sizeof(buf));
 		usbd_xfer_set_frames(xfer, 2);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -1836,7 +1836,7 @@ tr_transferred:
 		break;
 
 	case USB_ST_SETUP:
-		if (usbd_clear_stall_callback(xfer, sc->sc_xfer[stall_xfer])) {
+		if (usbd_clear_stall_callback_locked(xfer, sc->sc_xfer[stall_xfer])) {
 			goto tr_transferred;	/* should not happen */
 		}
 		break;
@@ -1901,7 +1901,7 @@ umass_t_cbi_command_callback(struct usb_xfer *xfer, usb_error_t error)
 			    sc->sc_transfer.cmd_data,
 			    sc->sc_transfer.cmd_len));
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 
@@ -1962,7 +1962,7 @@ umass_t_cbi_data_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_transfer.data_ptr,
 		    max_bulk);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -2018,7 +2018,7 @@ umass_t_cbi_data_write_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_transfer.data_ptr,
 		    max_bulk);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -2123,7 +2123,7 @@ umass_t_cbi_status_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */

@@ -221,8 +221,8 @@ g_modem_timeout(void *arg)
 
 	DPRINTFN(11, "Timeout %p\n", sc->sc_xfer[G_MODEM_INTR_DT]);
 
-	usbd_transfer_start(sc->sc_xfer[G_MODEM_BULK_WR]);
-	usbd_transfer_start(sc->sc_xfer[G_MODEM_BULK_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_MODEM_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[G_MODEM_BULK_RD]);
 
 	g_modem_timeout_reset(sc);
 }
@@ -359,7 +359,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -389,7 +389,7 @@ g_modem_bulk_write_callback(struct usb_xfer *xfer, usb_error_t error)
 
 		if (sc->sc_mode == G_MODEM_MODE_LOOP) {
 			/* start loop */
-			usbd_transfer_start(sc->sc_xfer[G_MODEM_BULK_RD]);
+			usbd_transfer_start_locked(sc->sc_xfer[G_MODEM_BULK_RD]);
 			break;
 		} else if ((sc->sc_mode == G_MODEM_MODE_PATTERN) && (sc->sc_tx_interval != 0)) {
 			/* wait for next timeout */
@@ -412,7 +412,7 @@ tr_setup:
 			usbd_xfer_set_frame_data(xfer, 0, sc->sc_data_buf, max);
 			usbd_xfer_set_interval(xfer, 0);
 			usbd_xfer_set_frames(xfer, 1);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 
 		} else if (sc->sc_mode == G_MODEM_MODE_LOOP) {
 			if (sc->sc_tx_busy == 0)
@@ -428,7 +428,7 @@ tr_setup:
 			usbd_xfer_set_frame_data(xfer, 0, sc->sc_data_buf, sc->sc_data_len);
 			usbd_xfer_set_interval(xfer, x);
 			usbd_xfer_set_frames(xfer, 1);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		} else {
 			sc->sc_tx_busy = 0;
 		}
@@ -439,7 +439,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -466,7 +466,7 @@ g_modem_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		if (sc->sc_mode == G_MODEM_MODE_LOOP) {
 			sc->sc_tx_busy = 1;
 			sc->sc_data_len = actlen;
-			usbd_transfer_start(sc->sc_xfer[G_MODEM_BULK_WR]);
+			usbd_transfer_start_locked(sc->sc_xfer[G_MODEM_BULK_WR]);
 			break;
 		}
 
@@ -478,7 +478,7 @@ tr_setup:
 
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_data_buf, G_MODEM_BUFSIZE);
 		usbd_xfer_set_frames(xfer, 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -486,7 +486,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

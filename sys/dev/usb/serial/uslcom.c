@@ -388,7 +388,7 @@ uslcom_watchdog(void *arg)
 
 	mtx_assert(&sc->sc_mtx, MA_OWNED);
 
-	usbd_transfer_start(sc->sc_xfer[USLCOM_CTRL_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[USLCOM_CTRL_DT_RD]);
 
 	usb_callout_reset(&sc->sc_watchdog,
 	    hz / 4, &uslcom_watchdog, sc);
@@ -506,8 +506,8 @@ uslcom_cfg_open(struct ucom_softc *ucom)
 	}
 
 	/* clear stall */
-	usbd_xfer_set_stall(sc->sc_xfer[USLCOM_BULK_DT_WR]);
-	usbd_xfer_set_stall(sc->sc_xfer[USLCOM_BULK_DT_RD]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[USLCOM_BULK_DT_WR]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[USLCOM_BULK_DT_RD]);
 
 	/* start polling status */
 	uslcom_watchdog(sc);
@@ -818,14 +818,14 @@ tr_setup:
 			DPRINTF("actlen = %d\n", actlen);
 
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -849,13 +849,13 @@ uslcom_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		return;
 
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		return;
@@ -905,7 +905,7 @@ uslcom_control_callback(struct usb_xfer *xfer, usb_error_t error)
 
 		pc = usbd_xfer_get_frame(xfer, 0);
 		usbd_copy_in(pc, 0, &req, sizeof(req));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:		/* error */
@@ -921,7 +921,7 @@ uslcom_start_read(struct ucom_softc *ucom)
 	struct uslcom_softc *sc = ucom->sc_parent;
 
 	/* start read endpoint */
-	usbd_transfer_start(sc->sc_xfer[USLCOM_BULK_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[USLCOM_BULK_DT_RD]);
 }
 
 static void
@@ -930,7 +930,7 @@ uslcom_stop_read(struct ucom_softc *ucom)
 	struct uslcom_softc *sc = ucom->sc_parent;
 
 	/* stop read endpoint */
-	usbd_transfer_stop(sc->sc_xfer[USLCOM_BULK_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_xfer[USLCOM_BULK_DT_RD]);
 }
 
 static void
@@ -938,7 +938,7 @@ uslcom_start_write(struct ucom_softc *ucom)
 {
 	struct uslcom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_start(sc->sc_xfer[USLCOM_BULK_DT_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[USLCOM_BULK_DT_WR]);
 }
 
 static void
@@ -946,7 +946,7 @@ uslcom_stop_write(struct ucom_softc *ucom)
 {
 	struct uslcom_softc *sc = ucom->sc_parent;
 
-	usbd_transfer_stop(sc->sc_xfer[USLCOM_BULK_DT_WR]);
+	usbd_transfer_stop_locked(sc->sc_xfer[USLCOM_BULK_DT_WR]);
 }
 
 static void

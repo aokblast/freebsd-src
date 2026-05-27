@@ -88,7 +88,7 @@ static uint8_t cmd_type[8] = {0x01, 0x86, 0xff, 0x01, 0x00, 0x00, 0x00, 0x00};
 #endif
 
 struct ugold_softc;
-struct ugold_readout_msg {
+struct ugold_readout_msg_locked {
 	struct usb_proc_msg hdr;
 	struct ugold_softc *sc;
 };
@@ -99,7 +99,7 @@ struct ugold_softc {
 
 	struct callout sc_callout;
 	struct mtx sc_mtx;
-	struct ugold_readout_msg sc_readout_msg[2];
+	struct ugold_readout_msg_locked sc_readout_msg[2];
 
 	int	sc_num_sensors;
 	int	sc_sensor[UGOLD_MAX_SENSORS];
@@ -115,7 +115,7 @@ static device_probe_t ugold_probe;
 static device_attach_t ugold_attach;
 static device_detach_t ugold_detach;
 
-static usb_proc_callback_t ugold_readout_msg;
+static usb_proc_callback_t ugold_readout_msg_locked;
 
 static usb_callback_t ugold_intr_callback;
 
@@ -161,7 +161,7 @@ ugold_timeout(void *arg)
 	struct ugold_softc *sc = arg;
 
 	usb_proc_explore_lock(sc->sc_udev);
-	(void)usb_proc_explore_msignal(sc->sc_udev,
+	(void)usb_proc_explore_msignal_locked(sc->sc_udev,
 	    &sc->sc_readout_msg[0], &sc->sc_readout_msg[1]);
 	usb_proc_explore_unlock(sc->sc_udev);
 
@@ -196,9 +196,9 @@ ugold_attach(device_t dev)
 	int i;
 
 	sc->sc_udev = uaa->device;
-	sc->sc_readout_msg[0].hdr.pm_callback = &ugold_readout_msg;
+	sc->sc_readout_msg[0].hdr.pm_callback = &ugold_readout_msg_locked;
 	sc->sc_readout_msg[0].sc = sc;
-	sc->sc_readout_msg[1].hdr.pm_callback = &ugold_readout_msg;
+	sc->sc_readout_msg[1].hdr.pm_callback = &ugold_readout_msg_locked;
 	sc->sc_readout_msg[1].sc = sc;
 	sc->sc_iface_index[0] = uaa->info.bIfaceIndex;
 	sc->sc_iface_index[1] = uaa->info.bIfaceIndex + 1;
@@ -273,7 +273,7 @@ ugold_attach(device_t dev)
 	    "Outer temperature is valid");
 
 	mtx_lock(&sc->sc_mtx);
-	usbd_transfer_start(sc->sc_xfer[UGOLD_INTR_DT]);
+	usbd_transfer_start_locked(sc->sc_xfer[UGOLD_INTR_DT]);
 	ugold_timeout(sc);
 	mtx_unlock(&sc->sc_mtx);
 
@@ -293,7 +293,7 @@ ugold_detach(device_t dev)
 	callout_drain(&sc->sc_callout);
 
 	usb_proc_explore_lock(sc->sc_udev);
-	usb_proc_explore_mwait(sc->sc_udev,
+	usb_proc_explore_mwait_locked(sc->sc_udev,
 	    &sc->sc_readout_msg[0], &sc->sc_readout_msg[1]);
 	usb_proc_explore_unlock(sc->sc_udev);
 
@@ -365,12 +365,12 @@ ugold_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:			/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -385,9 +385,9 @@ ugold_issue_cmd(struct ugold_softc *sc, uint8_t *cmd, int len)
 }
 
 static void
-ugold_readout_msg(struct usb_proc_msg *pm)
+ugold_readout_msg_locked(struct usb_proc_msg *pm)
 {
-	struct ugold_softc *sc = ((struct ugold_readout_msg *)pm)->sc;
+	struct ugold_softc *sc = ((struct ugold_readout_msg_locked *)pm)->sc;
 
 	usb_proc_explore_unlock(sc->sc_udev);
 

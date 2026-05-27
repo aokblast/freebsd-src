@@ -140,7 +140,7 @@ static device_detach_t	ubt_detach;
 static void		ubt_task_schedule(ubt_softc_p, int);
 static task_fn_t	ubt_task;
 
-#define	ubt_xfer_start(sc, i)	usbd_transfer_start((sc)->sc_xfer[(i)])
+#define	ubt_xfer_start(sc, i)	usbd_transfer_start_locked((sc)->sc_xfer[(i)])
 
 /* Netgraph methods */
 static ng_constructor_t	ng_ubt_constructor;
@@ -583,7 +583,7 @@ ubt_do_hci_request(struct usb_device *udev, struct ubt_hci_cmd *cmd,
 	    &ubt_probe_config, 1, evt, &mtx);
 	if (error == USB_ERR_NORMAL_COMPLETION) {
 		mtx_lock(&mtx);
-		usbd_transfer_start(*xfer);
+		usbd_transfer_start_locked(*xfer);
 
 		if (msleep_sbt(evt, &mtx, 0, "ubt pb", SBT_1MS * timeout,
 				0, C_HARDCLOCK) == EWOULDBLOCK) {
@@ -592,7 +592,7 @@ ubt_do_hci_request(struct usb_device *udev, struct ubt_hci_cmd *cmd,
 			error = USB_ERR_TIMEOUT;
 		}
 
-		usbd_transfer_stop(*xfer);
+		usbd_transfer_stop_locked(*xfer);
 		mtx_unlock(&mtx);
 
 		usbd_transfer_unsetup(xfer, 1);
@@ -885,7 +885,7 @@ ubt_probe_intr_callback(struct usb_xfer *xfer, usb_error_t error)
         case USB_ST_SETUP:
 submit_next:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:
@@ -893,7 +893,7 @@ submit_next:
 			printf("ng_ubt: interrupt transfer failed: %s\n",
 				usbd_errstr(error));
 			/* Try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto submit_next;
 		}
 		break;
@@ -956,7 +956,7 @@ send_next:
 
 		NG_FREE_M(m);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -1054,7 +1054,7 @@ submit_next:
 		NG_FREE_M(m); /* checks for m != NULL */
 
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -1063,7 +1063,7 @@ submit_next:
 				usbd_errstr(error));
 
 			/* Try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto submit_next;
 		}
 			/* transfer cancelled */
@@ -1153,7 +1153,7 @@ submit_next:
 		NG_FREE_M(m); /* checks for m != NULL */
 
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -1162,7 +1162,7 @@ submit_next:
 				usbd_errstr(error));
 
 			/* Try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto submit_next;
 		}
 			/* transfer cancelled */
@@ -1219,7 +1219,7 @@ send_next:
 
 		NG_FREE_M(m);
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -1230,7 +1230,7 @@ send_next:
 			UBT_STAT_OERROR(sc);
 
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto send_next;
 		}
 			/* transfer cancelled */
@@ -1266,7 +1266,7 @@ read_next:
 			usbd_xfer_set_frame_len(xfer, n,
 			    usbd_xfer_max_framelen(xfer));
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -1440,7 +1440,7 @@ send_next:
 			offset -= usbd_xfer_frame_len(xfer, n);
 		}
 
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */

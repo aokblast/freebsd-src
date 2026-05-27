@@ -885,8 +885,8 @@ otus_open_pipes(struct otus_softc *sc)
 
 	/* Enable RX transfers; needed for initial firmware messages */
 	OTUS_LOCK(sc);
-	usbd_transfer_start(sc->sc_xfer[OTUS_BULK_RX]);
-	usbd_transfer_start(sc->sc_xfer[OTUS_BULK_IRQ]);
+	usbd_transfer_start_locked(sc->sc_xfer[OTUS_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[OTUS_BULK_IRQ]);
 	OTUS_UNLOCK(sc);
 	return 0;
 
@@ -1280,7 +1280,7 @@ otus_cmd(struct otus_softc *sc, uint8_t code, const void *idata, int ilen,
 
 	/* Queue the command to the endpoint */
 	STAILQ_INSERT_TAIL(&sc->sc_cmd_pending, cmd, next_cmd);
-	usbd_transfer_start(sc->sc_xfer[OTUS_BULK_CMD]);
+	usbd_transfer_start_locked(sc->sc_xfer[OTUS_BULK_CMD]);
 
 	/* Sleep on the command; wait for it to complete */
 	error = msleep(cmd, &sc->sc_mtx, PCATCH, "otuscmd", hz);
@@ -1852,7 +1852,7 @@ tr_setup:
 		STAILQ_INSERT_TAIL(&sc->sc_rx_active, data, next);
 		usbd_xfer_set_frame_data(xfer, 0, data->buf,
 		    usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		/*
 		 * To avoid LOR we should unlock our private mutex here to call
 		 * ieee80211_input() because here is at the end of a USB
@@ -1884,7 +1884,7 @@ tr_setup:
 			STAILQ_INSERT_TAIL(&sc->sc_rx_inactive, data, next);
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			counter_u64_add(ic->ic_ierrors, 1);
 			goto tr_setup;
 		}
@@ -1978,7 +1978,7 @@ tr_setup:
 		usbd_xfer_set_frame_data(xfer, 0, data->buf, data->buflen);
 		OTUS_DPRINTF(sc, OTUS_DEBUG_XMIT,
 		    "%s: submitting transfer %p\n", __func__, data);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		sc->sc_tx_n_active++;
 		break;
 	default:
@@ -1991,7 +1991,7 @@ tr_setup:
 		counter_u64_add(ic->ic_oerrors, 1);
 
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2052,7 +2052,7 @@ tr_setup:
 		usbd_xfer_set_frame_data(xfer, 0, cmd->buf, cmd->buflen);
 		OTUS_DPRINTF(sc, OTUS_DEBUG_CMD,
 		    "%s: submitting transfer %p; buf=%p, buflen=%d\n", __func__, cmd, cmd->buf, cmd->buflen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		cmd = STAILQ_FIRST(&sc->sc_cmd_active);
@@ -2062,7 +2062,7 @@ tr_setup:
 		}
 
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2106,7 +2106,7 @@ otus_bulk_irq_callback(struct usb_xfer *xfer, usb_error_t error)
 		 */
 		OTUS_DPRINTF(sc, OTUS_DEBUG_IRQ, "%s: setup\n", __func__);
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default: /* Error */
@@ -2366,7 +2366,7 @@ otus_tx(struct otus_softc *sc, struct ieee80211_node *ni, struct mbuf *m,
 
 	/* Submit transfer */
 	STAILQ_INSERT_TAIL(&sc->sc_tx_pending[OTUS_BULK_TX], data, next);
-	usbd_transfer_start(sc->sc_xfer[OTUS_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[OTUS_BULK_TX]);
 
 	return 0;
 }

@@ -3062,7 +3062,7 @@ tr_setup:
 			    RUN_DEBUG_RECV_DESC | RUN_DEBUG_USB,
 			    "could not allocate mbuf - idle with stall\n");
 			counter_u64_add(ic->ic_ierrors, 1);
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			usbd_xfer_set_frames(xfer, 0);
 		} else {
 			/*
@@ -3074,13 +3074,13 @@ tr_setup:
 			    mtod(sc->rx_m, caddr_t), RUN_MAX_RXSZ);
 			usbd_xfer_set_frames(xfer, 1);
 		}
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:	/* Error */
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			if (error == USB_ERR_TIMEOUT)
 				device_printf(sc->sc_dev, "device timeout\n");
 			counter_u64_add(ic->ic_ierrors, 1);
@@ -3264,7 +3264,7 @@ tr_setup:
 
 		usbd_xfer_set_frame_len(xfer, 0, size);
 		usbd_xfer_set_priv(xfer, data);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		run_start(sc);
 
 		break;
@@ -3301,7 +3301,7 @@ tr_setup:
 			 * errors occur, hence clearing stall
 			 * introduces a 50 ms delay:
 			 */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -3578,7 +3578,7 @@ run_tx(struct run_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 
         STAILQ_INSERT_TAIL(&sc->sc_epq[qid].tx_qh, data, next);
 
-	usbd_transfer_start(sc->sc_xfer[qid]);
+	usbd_transfer_start_locked(sc->sc_xfer[qid]);
 
 	RUN_DPRINTF(sc, RUN_DEBUG_XMIT,
 	    "sending data frame len=%d rate=%d qid=%d\n",
@@ -3647,7 +3647,7 @@ run_tx_mgt(struct run_softc *sc, struct mbuf *m, struct ieee80211_node *ni)
 
 	STAILQ_INSERT_TAIL(&sc->sc_epq[0].tx_qh, data, next);
 
-	usbd_transfer_start(sc->sc_xfer[0]);
+	usbd_transfer_start_locked(sc->sc_xfer[0]);
 
 	return (0);
 }
@@ -3714,7 +3714,7 @@ run_sendprot(struct run_softc *sc,
 
         STAILQ_INSERT_TAIL(&sc->sc_epq[0].tx_qh, data, next);
 
-	usbd_transfer_start(sc->sc_xfer[0]);
+	usbd_transfer_start_locked(sc->sc_xfer[0]);
 
 	return (0);
 }
@@ -3793,7 +3793,7 @@ run_tx_param(struct run_softc *sc, struct mbuf *m, struct ieee80211_node *ni,
 
         STAILQ_INSERT_TAIL(&sc->sc_epq[0].tx_qh, data, next);
 
-	usbd_transfer_start(sc->sc_xfer[0]);
+	usbd_transfer_start_locked(sc->sc_xfer[0]);
 
         return (0);
 }
@@ -6317,9 +6317,9 @@ run_init_locked(struct run_softc *sc)
 	sc->cmdq_run = RUN_CMDQ_GO;
 
 	for (i = 0; i != RUN_N_XFER; i++)
-		usbd_xfer_set_stall(sc->sc_xfer[i]);
+		usbd_xfer_set_stall_locked(sc->sc_xfer[i]);
 
-	usbd_transfer_start(sc->sc_xfer[RUN_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[RUN_BULK_RX]);
 
 	if (run_txrx_enable(sc) != 0)
 		goto fail;

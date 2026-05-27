@@ -727,8 +727,8 @@ umb_close_bulkpipes(struct umb_softc *sc)
 	umb_rxflush(sc);
 	umb_txflush(sc);
 
-	usbd_transfer_stop(sc->sc_xfer[UMB_BULK_RX]);
-	usbd_transfer_stop(sc->sc_xfer[UMB_BULK_TX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMB_BULK_RX]);
+	usbd_transfer_stop_locked(sc->sc_xfer[UMB_BULK_TX]);
 }
 
 static int
@@ -912,7 +912,7 @@ umb_start(if_t ifp)
 		return;
 
 	mtx_lock(&sc->sc_mutex);
-	usbd_transfer_start(sc->sc_xfer[UMB_BULK_TX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMB_BULK_TX]);
 	mtx_unlock(&sc->sc_mutex);
 }
 
@@ -930,7 +930,7 @@ umb_start_task(struct usb_proc_msg *msg)
 	if_setdrvflagbits(ifp, IFF_DRV_RUNNING, 0);
 
 	/* start interrupt transfer */
-	usbd_transfer_start(sc->sc_xfer[UMB_INTR_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMB_INTR_RX]);
 
 	umb_open(sc);
 }
@@ -999,17 +999,17 @@ umb_add_task(struct umb_softc *sc, usb_proc_callback_t callback,
 
 	mtx_assert(&sc->sc_mutex, MA_OWNED);
 
-	if (usb_proc_is_gone(&sc->sc_taskqueue)) {
+	if (usb_proc_is_gone_locked(&sc->sc_taskqueue)) {
 		return;
 	}
 
-	task = usb_proc_msignal(&sc->sc_taskqueue, t0, t1);
+	task = usb_proc_msignal_locked(&sc->sc_taskqueue, t0, t1);
 
 	task->hdr.pm_callback = callback;
 	task->sc = sc;
 
 	if (sync) {
-		usb_proc_mwait(&sc->sc_taskqueue, t0, t1);
+		usb_proc_mwait_locked(&sc->sc_taskqueue, t0, t1);
 	}
 }
 
@@ -1868,7 +1868,7 @@ umb_rx(struct umb_softc *sc)
 {
 	mtx_assert(&sc->sc_mutex, MA_OWNED);
 
-	usbd_transfer_start(sc->sc_xfer[UMB_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[UMB_BULK_RX]);
 }
 
 static void
@@ -1912,7 +1912,7 @@ umb_rxeof(struct usb_xfer *xfer, usb_error_t status)
 		usbd_xfer_set_frame_data(xfer, 0, sc->sc_rx_buf,
 				sc->sc_rx_bufsz);
 		usbd_xfer_set_frames(xfer, 1);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		umb_rxflush(sc);
 		break;
@@ -1924,9 +1924,9 @@ umb_rxeof(struct usb_xfer *xfer, usb_error_t status)
 
 		if (status != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			usbd_xfer_set_frames(xfer, 0);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 			if_inc_counter(ifp, IFCOUNTER_IERRORS, 1);
 		}
 		else if (++sc->sc_rx_nerr > 100) {
@@ -2047,7 +2047,7 @@ tr_setup:
 		BPF_MTAP(ifp, m);
 
 		if_setdrvflagbits(ifp, IFF_DRV_OACTIVE, 0);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		break;
 
@@ -2061,7 +2061,7 @@ tr_setup:
 
 		if (status != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2316,7 +2316,7 @@ umb_ctrl_msg(struct umb_softc *sc, uint32_t req, void *data, int len)
 			    usbd_errstr(err));
 
 		/* will affect other transactions, too */
-		usbd_transfer_stop(sc->sc_xfer[UMB_INTR_RX]);
+		usbd_transfer_stop_locked(sc->sc_xfer[UMB_INTR_RX]);
 	} else {
 		DPRINTFN(2, "sent %s (tid %u)\n",
 		    umb_request2str(req), tid);
@@ -2842,12 +2842,12 @@ umb_intr(struct usb_xfer *xfer, usb_error_t status)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		if (status != USB_ERR_CANCELLED) {
 			/* start clear stall */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;

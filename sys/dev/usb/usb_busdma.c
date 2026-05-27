@@ -638,14 +638,14 @@ usb_pc_free_mem(struct usb_page_cache *pc)
 }
 
 /*------------------------------------------------------------------------*
- *	usb_pc_load_mem - load virtual memory into DMA
+ *	usb_pc_load_mem_locked - load virtual memory into DMA
  *
  * Return values:
  * 0: Success
  * Else: Error
  *------------------------------------------------------------------------*/
 uint8_t
-usb_pc_load_mem(struct usb_page_cache *pc, usb_size_t size, uint8_t sync)
+usb_pc_load_mem_locked(struct usb_page_cache *pc, usb_size_t size, uint8_t sync)
 {
 	/* setup page cache */
 	pc->page_offset_buf = 0;
@@ -898,13 +898,13 @@ usb_dma_tag_unsetup(struct usb_dma_parent_tag *udpt)
 }
 
 /*------------------------------------------------------------------------*
- *	usb_bdma_work_loop
+ *	usb_bdma_work_loop_locked
  *
  * This function handles loading of virtual buffers into DMA and is
  * only called when "dma_refcount" is zero.
  *------------------------------------------------------------------------*/
 void
-usb_bdma_work_loop(struct usb_xfer_queue *pq)
+usb_bdma_work_loop_locked(struct usb_xfer_queue *pq)
 {
 	struct usb_xfer_root *info;
 	struct usb_xfer *xfer;
@@ -918,7 +918,7 @@ usb_bdma_work_loop(struct usb_xfer_queue *pq)
 	if (xfer->error) {
 		/* some error happened */
 		USB_BUS_LOCK(info->bus);
-		usbd_transfer_done(xfer, 0);
+		usbd_transfer_done_locked(xfer, 0);
 		USB_BUS_UNLOCK(info->bus);
 		return;
 	}
@@ -991,19 +991,19 @@ usb_bdma_work_loop(struct usb_xfer_queue *pq)
 	}
 	if (info->dma_error) {
 		USB_BUS_LOCK(info->bus);
-		usbd_transfer_done(xfer, USB_ERR_DMA_LOAD_FAILED);
+		usbd_transfer_done_locked(xfer, USB_ERR_DMA_LOAD_FAILED);
 		USB_BUS_UNLOCK(info->bus);
 		return;
 	}
 	if (info->dma_currframe != info->dma_nframes) {
 		if (info->dma_currframe == 0) {
 			/* special case */
-			usb_pc_load_mem(xfer->frbuffers,
+			usb_pc_load_mem_locked(xfer->frbuffers,
 			    info->dma_frlength_0, 0);
 		} else {
 			/* default case */
 			nframes = info->dma_currframe;
-			usb_pc_load_mem(xfer->frbuffers + nframes,
+			usb_pc_load_mem_locked(xfer->frbuffers + nframes,
 			    xfer->frlengths[nframes], 0);
 		}
 
@@ -1016,20 +1016,20 @@ usb_bdma_work_loop(struct usb_xfer_queue *pq)
 	usb_bdma_pre_sync(xfer);
 
 	/* start loading next USB transfer, if any */
-	usb_command_wrapper(pq, NULL);
+	usb_command_wrapper_locked(pq, NULL);
 
 	/* finally start the hardware */
-	usbd_pipe_enter(xfer);
+	usbd_pipe_enter_locked(xfer);
 }
 
 /*------------------------------------------------------------------------*
- *	usb_bdma_done_event
+ *	usb_bdma_done_event_locked
  *
  * This function is called when the BUS-DMA has loaded virtual memory
  * into DMA, if any.
  *------------------------------------------------------------------------*/
 void
-usb_bdma_done_event(struct usb_dma_parent_tag *udpt)
+usb_bdma_done_event_locked(struct usb_dma_parent_tag *udpt)
 {
 	struct usb_xfer_root *info;
 
@@ -1041,7 +1041,7 @@ usb_bdma_done_event(struct usb_dma_parent_tag *udpt)
 	info->dma_error = udpt->dma_error;
 
 	/* enter workloop again */
-	usb_command_wrapper(&info->dma_q,
+	usb_command_wrapper_locked(&info->dma_q,
 	    info->dma_q.curr);
 }
 

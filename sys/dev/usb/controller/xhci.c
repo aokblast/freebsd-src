@@ -157,11 +157,11 @@ struct xhci_std_temp {
 static void	xhci_do_poll(struct usb_bus *);
 static void	xhci_device_done(struct usb_xfer *, usb_error_t);
 static void	xhci_get_xecp(struct xhci_softc *);
-static void	xhci_root_intr(struct xhci_softc *);
+static void	xhci_root_intr_locked(struct xhci_softc *);
 static void	xhci_free_device_ext(struct usb_device *);
 static struct xhci_endpoint_ext *xhci_get_endpoint_ext(struct usb_device *,
 		    struct usb_endpoint_descriptor *);
-static usb_proc_callback_t xhci_configure_msg;
+static usb_proc_callback_t xhci_configure_msg_locked;
 static usb_error_t xhci_configure_device(struct usb_device *);
 static usb_error_t xhci_configure_endpoint(struct usb_device *,
 		   struct usb_endpoint_descriptor *, struct xhci_endpoint_ext *,
@@ -633,9 +633,9 @@ xhci_init(struct xhci_softc *sc, device_t self, uint8_t dma32)
 	cv_init(&sc->sc_cmd_cv, "CMDQ");
 	sx_init(&sc->sc_cmd_sx, "CMDQ lock");
 
-	sc->sc_config_msg[0].hdr.pm_callback = &xhci_configure_msg;
+	sc->sc_config_msg[0].hdr.pm_callback = &xhci_configure_msg_locked;
 	sc->sc_config_msg[0].bus = &sc->sc_bus;
-	sc->sc_config_msg[1].hdr.pm_callback = &xhci_configure_msg;
+	sc->sc_config_msg[1].hdr.pm_callback = &xhci_configure_msg_locked;
 	sc->sc_config_msg[1].bus = &sc->sc_bus;
 
 	return (0);
@@ -646,7 +646,7 @@ xhci_uninit(struct xhci_softc *sc)
 {
 	/*
 	 * NOTE: At this point the control transfer process is gone
-	 * and "xhci_configure_msg" is no longer called. Consequently
+	 * and "xhci_configure_msg_locked" is no longer called. Consequently
 	 * waiting for the configuration messages to complete is not
 	 * needed.
 	 */
@@ -1710,7 +1710,7 @@ xhci_interrupt(struct xhci_softc *sc)
 	if (status & (XHCI_STS_PCD | XHCI_STS_HCH |
 	    XHCI_STS_HSE | XHCI_STS_HCE)) {
 		if (status & XHCI_STS_PCD) {
-			xhci_root_intr(sc);
+			xhci_root_intr_locked(sc);
 		}
 
 		if (status & XHCI_STS_HCH) {
@@ -1732,10 +1732,10 @@ xhci_interrupt(struct xhci_softc *sc)
 }
 
 /*------------------------------------------------------------------------*
- *	xhci_timeout - XHCI timeout handler
+ *	xhci_timeout_locked - XHCI timeout handler
  *------------------------------------------------------------------------*/
 static void
-xhci_timeout(void *arg)
+xhci_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -2977,7 +2977,7 @@ xhci_transfer_insert(struct usb_xfer *xfer)
 		DPRINTFN(8, "Not running\n");
 
 		/* start configuration */
-		(void)usb_proc_msignal(USB_BUS_CONTROL_XFER_PROC(&sc->sc_bus),
+		(void)usb_proc_msignal_locked(USB_BUS_CONTROL_XFER_PROC(&sc->sc_bus),
 		    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
 		return (0);
 	}
@@ -3056,7 +3056,7 @@ xhci_transfer_insert(struct usb_xfer *xfer)
 }
 
 static void
-xhci_root_intr(struct xhci_softc *sc)
+xhci_root_intr_locked(struct xhci_softc *sc)
 {
 	uint16_t i;
 
@@ -3076,7 +3076,7 @@ xhci_root_intr(struct xhci_softc *sc)
 			DPRINTF("port %d changed\n", i);
 		}
 	}
-	uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+	uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 	    sizeof(sc->sc_hub_idata));
 }
 
@@ -3096,7 +3096,7 @@ xhci_device_done(struct usb_xfer *xfer, usb_error_t error)
 	xhci_transfer_remove(xfer, error);
 
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 }
 
 /*------------------------------------------------------------------------*
@@ -3177,11 +3177,11 @@ xhci_device_generic_start(struct usb_xfer *xfer)
 	    xfer->stream_id, NULL);
 
 	/* add transfer last on interrupt queue */
-	usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+	usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 	/* start timeout, if any */
 	if (xfer->timeout != 0)
-		usbd_transfer_timeout_ms(xfer, &xhci_timeout, xfer->timeout);
+		usbd_transfer_timeout_ms_locked(xfer, &xhci_timeout_locked, xfer->timeout);
 }
 
 static const struct usb_pipe_methods xhci_device_generic_methods =
@@ -3294,7 +3294,7 @@ struct usb_hub_ss_descriptor xhci_hubd = {
 };
 
 static usb_error_t
-xhci_roothub_exec(struct usb_device *udev,
+xhci_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	struct xhci_softc *sc = XHCI_BUS2SC(udev->bus);
@@ -3990,14 +3990,14 @@ xhci_start_dma_delay(struct usb_xfer *xfer)
 	struct xhci_softc *sc = XHCI_BUS2SC(xfer->xroot->bus);
 
 	/* put transfer on interrupt queue (again) */
-	usbd_transfer_enqueue(&sc->sc_bus.intr_q, xfer);
+	usbd_transfer_enqueue_locked(&sc->sc_bus.intr_q, xfer);
 
-	(void)usb_proc_msignal(USB_BUS_CONTROL_XFER_PROC(&sc->sc_bus),
+	(void)usb_proc_msignal_locked(USB_BUS_CONTROL_XFER_PROC(&sc->sc_bus),
 	    &sc->sc_config_msg[0], &sc->sc_config_msg[1]);
 }
 
 static void
-xhci_configure_msg(struct usb_proc_msg *pm)
+xhci_configure_msg_locked(struct usb_proc_msg *pm)
 {
 	struct xhci_softc *sc;
 	struct xhci_endpoint_ext *pepext;
@@ -4056,10 +4056,10 @@ restart:
 
 		if (xfer->flags_int.did_dma_delay) {
 			/* remove transfer from interrupt queue (again) */
-			usbd_transfer_dequeue(xfer);
+			usbd_transfer_dequeue_locked(xfer);
 
 			/* we are finally done */
-			usb_dma_delay_done_cb(xfer);
+			usb_dma_delay_done_cb_locked(xfer);
 
 			/* queue changed - restart */
 			goto restart;
@@ -4486,7 +4486,7 @@ static const struct usb_bus_methods xhci_bus_methods = {
 	.device_resume = xhci_device_resume,
 	.device_suspend = xhci_device_suspend,
 	.set_hw_power = xhci_set_hw_power,
-	.roothub_exec = xhci_roothub_exec,
+	.roothub_exec = xhci_roothub_exec_locked,
 	.xfer_poll = xhci_do_poll,
 	.start_dma_delay = xhci_start_dma_delay,
 	.set_address = xhci_set_address,

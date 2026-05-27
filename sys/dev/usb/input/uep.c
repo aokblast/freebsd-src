@@ -302,13 +302,13 @@ uep_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 			break;
 #endif
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:
 		if (error != USB_ERR_CANCELLED) {
 			/* try clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -434,7 +434,7 @@ uep_ev_close(struct evdev_dev *evdev)
 	struct uep_softc *sc = evdev_get_softc(evdev);
 
 	mtx_assert(&sc->mtx, MA_OWNED);
-	usbd_transfer_stop(sc->xfer[UEP_INTR_DT]);
+	usbd_transfer_stop_locked(sc->xfer[UEP_INTR_DT]);
 
 	return (0);
 }
@@ -445,7 +445,7 @@ uep_ev_open(struct evdev_dev *evdev)
 	struct uep_softc *sc = evdev_get_softc(evdev);
 
 	mtx_assert(&sc->mtx, MA_OWNED);
-	usbd_transfer_start(sc->xfer[UEP_INTR_DT]);
+	usbd_transfer_start_locked(sc->xfer[UEP_INTR_DT]);
 
 	return (0);
 }
@@ -462,12 +462,12 @@ uep_start_read(struct usb_fifo *fifo)
 		rate = 1000;
 
 	if (rate > 0 && sc->xfer[UEP_INTR_DT] != NULL) {
-		usbd_transfer_stop(sc->xfer[UEP_INTR_DT]);
+		usbd_transfer_stop_locked(sc->xfer[UEP_INTR_DT]);
 		usbd_xfer_set_interval(sc->xfer[UEP_INTR_DT], 1000 / rate);
 		sc->pollrate = 0;
 	}
 
-	usbd_transfer_start(sc->xfer[UEP_INTR_DT]);
+	usbd_transfer_start_locked(sc->xfer[UEP_INTR_DT]);
 }
 
 static void
@@ -475,7 +475,7 @@ uep_stop_read(struct usb_fifo *fifo)
 {
 	struct uep_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->xfer[UEP_INTR_DT]);
+	usbd_transfer_stop_locked(sc->xfer[UEP_INTR_DT]);
 }
 
 static void

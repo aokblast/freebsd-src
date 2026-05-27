@@ -226,7 +226,7 @@ uhid_snes_open(struct usb_fifo *fifo, int fflags)
 	}
 
 	mtx_lock(&sc->sc_mutex);
-	usbd_xfer_set_stall(sc->sc_transfer[UHID_SNES_INTR_DT_RD]);
+	usbd_xfer_set_stall_locked(sc->sc_transfer[UHID_SNES_INTR_DT_RD]);
 	mtx_unlock(&sc->sc_mutex);
 
 	error = usb_fifo_alloc_buffer(fifo,
@@ -418,7 +418,7 @@ uhid_snes_watchdog(void *arg)
 	mtx_assert(&sc->sc_mutex, MA_OWNED);
 
 	if (sc->sc_fflags == 0)
-		usbd_transfer_start(sc->sc_transfer[UHID_SNES_STATUS_DT_RD]);
+		usbd_transfer_start_locked(sc->sc_transfer[UHID_SNES_STATUS_DT_RD]);
 
 	usb_callout_reset(&sc->sc_watchdog, hz, &uhid_snes_watchdog, sc);
 }
@@ -428,7 +428,7 @@ uhid_snes_start_read(struct usb_fifo *fifo)
 {
 	struct uhid_snes_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_start(sc->sc_transfer[UHID_SNES_INTR_DT_RD]);
+	usbd_transfer_start_locked(sc->sc_transfer[UHID_SNES_INTR_DT_RD]);
 }
 
 static void
@@ -436,7 +436,7 @@ uhid_snes_stop_read(struct usb_fifo *fifo)
 {
 	struct uhid_snes_softc *sc = usb_fifo_softc(fifo);
 
-	usbd_transfer_stop(sc->sc_transfer[UHID_SNES_INTR_DT_RD]);
+	usbd_transfer_stop_locked(sc->sc_transfer[UHID_SNES_INTR_DT_RD]);
 }
 
 static void
@@ -473,7 +473,7 @@ uhid_snes_read_callback(struct usb_xfer *transfer, usb_error_t error)
 		if (usb_fifo_put_bytes_max(fifo) != 0) {
 			max = usbd_xfer_max_len(transfer);
 			usbd_xfer_set_frame_len(transfer, 0, max);
-			usbd_transfer_submit(transfer);
+			usbd_transfer_submit_locked(transfer);
 		}
 		break;
 
@@ -484,7 +484,7 @@ uhid_snes_read_callback(struct usb_xfer *transfer, usb_error_t error)
 
 		if (error != USB_ERR_CANCELLED) {
 			/* Issue a clear-stall request. */
-			usbd_xfer_set_stall(transfer);
+			usbd_xfer_set_stall_locked(transfer);
 			goto setup;
 		}
 		break;
@@ -512,7 +512,7 @@ uhid_snes_status_callback(struct usb_xfer *transfer, usb_error_t error)
 		usbd_xfer_set_frame_len(transfer, 0, sizeof(req));
 		usbd_xfer_set_frame_len(transfer, 1, 1);
 		usbd_xfer_set_frames(transfer, 2);
-		usbd_transfer_submit(transfer);
+		usbd_transfer_submit_locked(transfer);
 		break;
 
 	default:

@@ -1279,7 +1279,7 @@ rsu_fw_cmd(struct rsu_softc *sc, uint8_t code, void *buf, int len)
 	    __func__, code, cmdsz);
 	data->buflen = xferlen;
 	STAILQ_INSERT_TAIL(&sc->sc_tx_pending[which], data, next);
-	usbd_transfer_start(sc->sc_xfer[which]);
+	usbd_transfer_start_locked(sc->sc_xfer[which]);
 
 	return (0);
 }
@@ -2600,7 +2600,7 @@ tr_setup:
 		STAILQ_INSERT_TAIL(&sc->sc_rx_active, data, next);
 		usbd_xfer_set_frame_data(xfer, 0, data->buf,
 		    usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		/*
 		 * To avoid LOR we should unlock our private mutex here to call
 		 * ieee80211_input() because here is at the end of a USB
@@ -2633,7 +2633,7 @@ tr_setup:
 			STAILQ_INSERT_TAIL(&sc->sc_rx_inactive, data, next);
 		}
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			counter_u64_add(ic->ic_ierrors, 1);
 			goto tr_setup;
 		}
@@ -2697,7 +2697,7 @@ tr_setup:
 		    "%s: submitting transfer %p\n",
 		    __func__,
 		    data);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		data = STAILQ_FIRST(&sc->sc_tx_active[which]);
@@ -2709,7 +2709,7 @@ tr_setup:
 		counter_u64_add(ic->ic_oerrors, 1);
 
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2934,7 +2934,7 @@ rsu_tx_start(struct rsu_softc *sc, struct ieee80211_node *ni,
 	STAILQ_INSERT_TAIL(&sc->sc_tx_pending[which], data, next);
 
 	/* start transfer, if any */
-	usbd_transfer_start(sc->sc_xfer[which]);
+	usbd_transfer_start_locked(sc->sc_xfer[which]);
 	return (0);
 }
 
@@ -3362,7 +3362,7 @@ rsu_fw_loadsection(struct rsu_softc *sc, const uint8_t *buf, int len)
 		buf += mlen;
 		len -= mlen;
 	}
-	usbd_transfer_start(sc->sc_xfer[which]);
+	usbd_transfer_start_locked(sc->sc_xfer[which]);
 	return (0);
 }
 
@@ -3731,7 +3731,7 @@ rsu_init(struct rsu_softc *sc)
 		goto fail;
 
 	sc->sc_extra_scan = 0;
-	usbd_transfer_start(sc->sc_xfer[RSU_BULK_RX]);
+	usbd_transfer_start_locked(sc->sc_xfer[RSU_BULK_RX]);
 
 	/* We're ready to go. */
 	sc->sc_running = 1;
@@ -3741,7 +3741,7 @@ rsu_init(struct rsu_softc *sc)
 fail:
 	/* Need to stop all failed transfers, if any */
 	for (i = 0; i != RSU_N_TRANSFER; i++)
-		usbd_transfer_stop(sc->sc_xfer[i]);
+		usbd_transfer_stop_locked(sc->sc_xfer[i]);
 	RSU_UNLOCK(sc);
 
 	return (error);
@@ -3775,7 +3775,7 @@ rsu_stop(struct rsu_softc *sc)
 	memset(sc->keys_bmap, 0, sizeof(sc->keys_bmap));
 
 	for (i = 0; i < RSU_N_TRANSFER; i++)
-		usbd_transfer_stop(sc->sc_xfer[i]);
+		usbd_transfer_stop_locked(sc->sc_xfer[i]);
 
 	/* Ensure the mbuf queue is drained */
 	rsu_drain_mbufq(sc);

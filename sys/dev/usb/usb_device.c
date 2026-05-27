@@ -100,7 +100,7 @@ static void	usb_init_attach_arg(struct usb_device *,
 		    struct usb_attach_arg *);
 static void	usb_suspend_resume_sub(struct usb_device *, device_t,
 		    uint8_t);
-static usb_proc_callback_t usbd_clear_stall_proc;
+static usb_proc_callback_t usbd_clear_stall_proc_locked;
 static usb_error_t usb_config_parse(struct usb_device *, uint8_t, uint8_t);
 #if USB_HAVE_DEVCTL
 static void	usb_notify_addq(const char *type, struct usb_device *);
@@ -516,7 +516,8 @@ usb_init_endpoint(struct usb_device *udev, uint8_t iface_index,
 	/* setup USB stream queues */
 	for (x = 0; x != USB_MAX_EP_STREAMS; x++) {
 		TAILQ_INIT(&ep->endpoint_q[x].head);
-		ep->endpoint_q[x].command = &usbd_pipe_start;
+		ep->endpoint_q[x].command = &usbd_pipe_start_locked;
+		ep->endpoint_q[x].lock = &udev->bus->bus_mtx;
 	}
 
 	/* the pipe is not supported by the hardware */
@@ -620,7 +621,7 @@ usb_unconfigure(struct usb_device *udev, uint8_t flag)
 	do_unlock = usbd_enum_lock(udev);
 
 	/* detach all interface drivers */
-	usb_detach_device(udev, USB_IFACE_INDEX_ANY, flag);
+	usb_detach_device_locked(udev, USB_IFACE_INDEX_ANY, flag);
 
 #if USB_HAVE_UGEN
 	/* free all FIFOs except control endpoint FIFOs */
@@ -1178,7 +1179,7 @@ usbd_set_endpoint_stall(struct usb_device *udev, struct usb_endpoint *ep,
 
 		/* start the current or next transfer, if any */
 		for (x = 0; x != USB_MAX_EP_STREAMS; x++) {
-			usb_command_wrapper(&ep->endpoint_q[x],
+			usb_command_wrapper_locked(&ep->endpoint_q[x],
 			    ep->endpoint_q[x].curr);
 		}
 	}
@@ -1268,7 +1269,7 @@ error:
 }
 
 /*------------------------------------------------------------------------*
- *	usb_detach_device
+ *	usb_detach_device_locked
  *
  * The following function will detach the matching interfaces.
  * This function is NULL safe.
@@ -1276,7 +1277,7 @@ error:
  * Flag values, see "USB_UNCFG_FLAG_XXX".
  *------------------------------------------------------------------------*/
 void
-usb_detach_device(struct usb_device *udev, uint8_t iface_index,
+usb_detach_device_locked(struct usb_device *udev, uint8_t iface_index,
     uint8_t flag)
 {
 	struct usb_interface *iface;
@@ -1589,7 +1590,7 @@ usb_suspend_resume_sub(struct usb_device *udev, device_t dev, uint8_t do_suspend
 }
 
 /*------------------------------------------------------------------------*
- *	usb_suspend_resume
+ *	usb_suspend_resume_locked
  *
  * The following function will suspend or resume the USB device.
  *
@@ -1598,7 +1599,7 @@ usb_suspend_resume_sub(struct usb_device *udev, device_t dev, uint8_t do_suspend
  * Else: Failure
  *------------------------------------------------------------------------*/
 usb_error_t
-usb_suspend_resume(struct usb_device *udev, uint8_t do_suspend)
+usb_suspend_resume_locked(struct usb_device *udev, uint8_t do_suspend)
 {
 	struct usb_interface *iface;
 	uint8_t i;
@@ -1635,12 +1636,12 @@ usb_suspend_resume(struct usb_device *udev, uint8_t do_suspend)
 }
 
 /*------------------------------------------------------------------------*
- *      usbd_clear_stall_proc
+ *      usbd_clear_stall_proc_locked
  *
  * This function performs generic USB clear stall operations.
  *------------------------------------------------------------------------*/
 static void
-usbd_clear_stall_proc(struct usb_proc_msg *_pm)
+usbd_clear_stall_proc_locked(struct usb_proc_msg *_pm)
 {
 	struct usb_udev_msg *pm = (void *)_pm;
 	struct usb_device *udev = pm->udev;
@@ -1650,7 +1651,7 @@ usbd_clear_stall_proc(struct usb_proc_msg *_pm)
 	USB_MTX_LOCK(&udev->device_mtx);
 
 	/* Start clear stall callback */
-	usbd_transfer_start(udev->ctrl_xfer[1]);
+	usbd_transfer_start_locked(udev->ctrl_xfer[1]);
 
 	/* Change lock */
 	USB_MTX_UNLOCK(&udev->device_mtx);
@@ -1809,9 +1810,9 @@ usb_alloc_device(device_t parent_dev, struct usb_bus *bus,
 	mtx_init(&udev->device_mtx, "USB device mutex", NULL, MTX_DEF);
 
 	/* initialise generic clear stall */
-	udev->cs_msg[0].hdr.pm_callback = &usbd_clear_stall_proc;
+	udev->cs_msg[0].hdr.pm_callback = &usbd_clear_stall_proc_locked;
 	udev->cs_msg[0].udev = udev;
-	udev->cs_msg[1].hdr.pm_callback = &usbd_clear_stall_proc;
+	udev->cs_msg[1].hdr.pm_callback = &usbd_clear_stall_proc_locked;
 	udev->cs_msg[1].udev = udev;
 
 	/* initialise some USB device fields */
@@ -2194,7 +2195,7 @@ usb_destroy_dev(struct usb_fs_privdata *pd)
 	USB_BUS_LOCK(bus);
 	SLIST_INSERT_HEAD(&bus->pd_cleanup_list, pd, pd_next);
 	/* get cleanup going */
-	usb_proc_msignal(USB_BUS_EXPLORE_PROC(bus),
+	usb_proc_msignal_locked(USB_BUS_EXPLORE_PROC(bus),
 	    &bus->cleanup_msg[0], &bus->cleanup_msg[1]);
 	USB_BUS_UNLOCK(bus);
 }
@@ -2344,7 +2345,7 @@ usb_free_device(struct usb_device *udev, uint8_t flag)
 	 * anywhere:
 	 */
 	USB_BUS_LOCK(udev->bus);
-	usb_proc_mwait(USB_BUS_CS_PROC(udev->bus),
+	usb_proc_mwait_locked(USB_BUS_CS_PROC(udev->bus),
 	    &udev->cs_msg[0], &udev->cs_msg[1]);
 	USB_BUS_UNLOCK(udev->bus);
 

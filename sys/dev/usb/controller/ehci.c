@@ -123,12 +123,12 @@ static const struct usb_pipe_methods ehci_device_isoc_fs_methods;
 static const struct usb_pipe_methods ehci_device_isoc_hs_methods;
 
 static void ehci_do_poll(struct usb_bus *);
-static void ehci_device_done(struct usb_xfer *, usb_error_t);
+static void ehci_device_done_locked(struct usb_xfer *, usb_error_t);
 static uint8_t ehci_check_transfer(struct usb_xfer *);
-static void ehci_timeout(void *);
+static void ehci_timeout_locked(void *);
 static void ehci_poll_timeout(void *);
 
-static void ehci_root_intr(ehci_softc_t *sc);
+static void ehci_root_intr_locked(ehci_softc_t *sc);
 
 struct ehci_std_temp {
 	ehci_softc_t *sc;
@@ -907,11 +907,11 @@ ehci_transfer_intr_enqueue(struct usb_xfer *xfer)
 		return;
 	}
 	/* put transfer on interrupt queue */
-	usbd_transfer_enqueue(&xfer->xroot->bus->intr_q, xfer);
+	usbd_transfer_enqueue_locked(&xfer->xroot->bus->intr_q, xfer);
 
 	/* start timeout, if any */
 	if (xfer->timeout != 0) {
-		usbd_transfer_timeout_ms(xfer, &ehci_timeout, xfer->timeout);
+		usbd_transfer_timeout_ms_locked(xfer, &ehci_timeout_locked, xfer->timeout);
 	}
 }
 
@@ -1237,7 +1237,7 @@ ehci_non_isoc_done(struct usb_xfer *xfer)
 		err = ehci_non_isoc_done_sub(xfer);
 	}
 done:
-	ehci_device_done(xfer, err);
+	ehci_device_done_locked(xfer, err);
 }
 
 /*------------------------------------------------------------------------*
@@ -1273,7 +1273,7 @@ ehci_check_transfer(struct usb_xfer *xfer)
 		status |= hc32toh(sc, td->sitd_status);
 
 		if (!(status & EHCI_SITD_ACTIVE)) {
-			ehci_device_done(xfer, USB_ERR_NORMAL_COMPLETION);
+			ehci_device_done_locked(xfer, USB_ERR_NORMAL_COMPLETION);
 			goto transferred;
 		}
 	} else if (methods == &ehci_device_isoc_hs_methods) {
@@ -1307,7 +1307,7 @@ ehci_check_transfer(struct usb_xfer *xfer)
 
 		/* if no transactions are active we continue */
 		if (!(status & htohc32(sc, EHCI_ITD_ACTIVE))) {
-			ehci_device_done(xfer, USB_ERR_NORMAL_COMPLETION);
+			ehci_device_done_locked(xfer, USB_ERR_NORMAL_COMPLETION);
 			goto transferred;
 		}
 	} else {
@@ -1387,7 +1387,7 @@ transferred:
 }
 
 static void
-ehci_pcd_enable(ehci_softc_t *sc)
+ehci_pcd_enable_locked(ehci_softc_t *sc)
 {
 	USB_BUS_LOCK_ASSERT(&sc->sc_bus, MA_OWNED);
 
@@ -1397,7 +1397,7 @@ ehci_pcd_enable(ehci_softc_t *sc)
 	/* acknowledge any PCD interrupt */
 	EOWRITE4(sc, EHCI_USBSTS, EHCI_STS_PCD);
 
-	ehci_root_intr(sc);
+	ehci_root_intr_locked(sc);
 }
 
 static void
@@ -1489,11 +1489,11 @@ ehci_interrupt(ehci_softc_t *sc)
 		sc->sc_eintrs &= ~EHCI_STS_PCD;
 		EOWRITE4(sc, EHCI_USBINTR, sc->sc_eintrs);
 
-		ehci_root_intr(sc);
+		ehci_root_intr_locked(sc);
 
 		/* do not allow RHSC interrupts > 1 per second */
 		usb_callout_reset(&sc->sc_tmo_pcd, hz,
-		    (void *)&ehci_pcd_enable, sc);
+		    (void *)&ehci_pcd_enable_locked, sc);
 	}
 	status &= ~(EHCI_STS_INT | EHCI_STS_ERRINT | EHCI_STS_PCD | EHCI_STS_IAA);
 
@@ -1519,7 +1519,7 @@ done:
  * called when a request does not complete
  */
 static void
-ehci_timeout(void *arg)
+ehci_timeout_locked(void *arg)
 {
 	struct usb_xfer *xfer = arg;
 
@@ -1528,7 +1528,7 @@ ehci_timeout(void *arg)
 	USB_BUS_LOCK_ASSERT(xfer->xroot->bus, MA_OWNED);
 
 	/* transfer is transferred */
-	ehci_device_done(xfer, USB_ERR_TIMEOUT);
+	ehci_device_done_locked(xfer, USB_ERR_TIMEOUT);
 }
 
 static void
@@ -1992,7 +1992,7 @@ ehci_setup_standard_chain(struct usb_xfer *xfer, ehci_qh_t **qh_last)
 }
 
 static void
-ehci_root_intr(ehci_softc_t *sc)
+ehci_root_intr_locked(ehci_softc_t *sc)
 {
 	uint16_t i;
 	uint16_t m;
@@ -2014,7 +2014,7 @@ ehci_root_intr(ehci_softc_t *sc)
 			DPRINTF("port %d changed\n", i);
 		}
 	}
-	uhub_root_intr(&sc->sc_bus, sc->sc_hub_idata,
+	uhub_root_intr_locked(&sc->sc_bus, sc->sc_hub_idata,
 	    sizeof(sc->sc_hub_idata));
 }
 
@@ -2144,7 +2144,7 @@ ehci_isoc_hs_done(ehci_softc_t *sc, struct usb_xfer *xfer)
  * from close and from interrupt
  */
 static void
-ehci_device_done(struct usb_xfer *xfer, usb_error_t error)
+ehci_device_done_locked(struct usb_xfer *xfer, usb_error_t error)
 {
 	const struct usb_pipe_methods *methods = xfer->endpoint->methods;
 	ehci_softc_t *sc = EHCI_BUS2SC(xfer->xroot->bus);
@@ -2188,7 +2188,7 @@ ehci_device_done(struct usb_xfer *xfer, usb_error_t error)
 		xfer->td_transfer_last = NULL;
 	}
 	/* dequeue transfer and start next transfer */
-	usbd_transfer_done(xfer, error);
+	usbd_transfer_done_locked(xfer, error);
 }
 
 /*------------------------------------------------------------------------*
@@ -2203,7 +2203,7 @@ ehci_device_bulk_open(struct usb_xfer *xfer)
 static void
 ehci_device_bulk_close(struct usb_xfer *xfer)
 {
-	ehci_device_done(xfer, USB_ERR_CANCELLED);
+	ehci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -2270,7 +2270,7 @@ ehci_device_ctrl_open(struct usb_xfer *xfer)
 static void
 ehci_device_ctrl_close(struct usb_xfer *xfer)
 {
-	ehci_device_done(xfer, USB_ERR_CANCELLED);
+	ehci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -2348,7 +2348,7 @@ ehci_device_intr_close(struct usb_xfer *xfer)
 
 	sc->sc_intr_stat[xfer->qh_pos]--;
 
-	ehci_device_done(xfer, USB_ERR_CANCELLED);
+	ehci_device_done_locked(xfer, USB_ERR_CANCELLED);
 
 	/* bandwidth must be freed after device done */
 	usb_hs_bandwidth_free(xfer);
@@ -2425,7 +2425,7 @@ ehci_device_isoc_fs_open(struct usb_xfer *xfer)
 static void
 ehci_device_isoc_fs_close(struct usb_xfer *xfer)
 {
-	ehci_device_done(xfer, USB_ERR_CANCELLED);
+	ehci_device_done_locked(xfer, USB_ERR_CANCELLED);
 }
 
 static void
@@ -2690,7 +2690,7 @@ ehci_device_isoc_hs_open(struct usb_xfer *xfer)
 static void
 ehci_device_isoc_hs_close(struct usb_xfer *xfer)
 {
-	ehci_device_done(xfer, USB_ERR_CANCELLED);
+	ehci_device_done_locked(xfer, USB_ERR_CANCELLED);
 
 	/* bandwidth must be freed after device done */
 	usb_hs_bandwidth_free(xfer);
@@ -2994,7 +2994,7 @@ ehci_disown(ehci_softc_t *sc, uint16_t index, uint8_t lowspeed)
 }
 
 static usb_error_t
-ehci_roothub_exec(struct usb_device *udev,
+ehci_roothub_exec_locked(struct usb_device *udev,
     struct usb_device_request *req, const void **pptr, uint16_t *plength)
 {
 	ehci_softc_t *sc = EHCI_BUS2SC(udev->bus);
@@ -3822,8 +3822,8 @@ ehci_start_dma_delay_second(struct usb_xfer *xfer)
 	ehci_doorbell_async(sc);
 
 	/* give the doorbell 4ms */
-	usbd_transfer_timeout_ms(xfer,
-	    (void (*)(void *))&usb_dma_delay_done_cb, 4);
+	usbd_transfer_timeout_ms_locked(xfer,
+	    (void (*)(void *))&usb_dma_delay_done_cb_locked, 4);
 }
 
 /*
@@ -3842,7 +3842,7 @@ ehci_start_dma_delay(struct usb_xfer *xfer)
 	ehci_doorbell_async(sc);
 
 	/* give the doorbell 4ms */
-	usbd_transfer_timeout_ms(xfer,
+	usbd_transfer_timeout_ms_locked(xfer,
 	    (void (*)(void *))&ehci_start_dma_delay_second, 4);
 }
 
@@ -3856,7 +3856,7 @@ static const struct usb_bus_methods ehci_bus_methods =
 	.device_suspend = ehci_device_suspend,
 	.set_hw_power = ehci_set_hw_power,
 	.set_hw_power_sleep = ehci_set_hw_power_sleep,
-	.roothub_exec = ehci_roothub_exec,
+	.roothub_exec = ehci_roothub_exec_locked,
 	.xfer_poll = ehci_do_poll,
 	.start_dma_delay = ehci_start_dma_delay,
 };

@@ -173,7 +173,7 @@ tr_setup:
 		if (data->ni == NULL && RTWN_CHIP_HAS_BCNQ1(sc))
 			rtwn_switch_bcnq(sc, data->id);
 		usbd_xfer_set_frame_data(xfer, 0, data->buf, data->buflen);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		if (sc->sc_ratectl != RTWN_RATECTL_NET80211)
 			sc->sc_tx_n_active++;
 		break;
@@ -190,7 +190,7 @@ tr_setup:
 			    qid,
 			    usbd_errstr(error));
 		if (error != USB_ERR_CANCELLED) {
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -339,7 +339,7 @@ rtwn_usb_tx_start(struct rtwn_softc *sc, struct ieee80211_node *ni,
 	if (STAILQ_EMPTY(&uc->uc_tx_inactive))
 		sc->qfullmsk = 1;
 
-	usbd_transfer_start(xfer);
+	usbd_transfer_start_locked(xfer);
 
 	return (0);
 }

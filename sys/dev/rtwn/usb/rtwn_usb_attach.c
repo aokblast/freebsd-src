@@ -290,7 +290,7 @@ rtwn_usb_start_xfers(struct rtwn_softc *sc)
 {
 	struct rtwn_usb_softc *uc = RTWN_USB_SOFTC(sc);
 
-	usbd_transfer_start(uc->uc_xfer[RTWN_BULK_RX]);
+	usbd_transfer_start_locked(uc->uc_xfer[RTWN_BULK_RX]);
 }
 
 static void

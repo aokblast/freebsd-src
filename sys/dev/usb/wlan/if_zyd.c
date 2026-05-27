@@ -731,7 +731,7 @@ zyd_intr_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 
 	default:			/* Error */
@@ -740,7 +740,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -778,7 +778,7 @@ tr_setup:
 			usbd_xfer_set_frame_len(xfer, 0, rqp->ilen);
 			usbd_xfer_set_priv(xfer, rqp);
 			rqp->flags |= ZYD_CMD_FLAG_SENT;
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 			break;
 		}
 		break;
@@ -789,7 +789,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -819,8 +819,8 @@ zyd_cmd(struct zyd_softc *sc, uint16_t code, const void *idata, int ilen,
 	rq.olen = olen;
 	rq.flags = flags;
 	STAILQ_INSERT_TAIL(&sc->sc_rqh, &rq, rq);
-	usbd_transfer_start(sc->sc_xfer[ZYD_INTR_RD]);
-	usbd_transfer_start(sc->sc_xfer[ZYD_INTR_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[ZYD_INTR_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[ZYD_INTR_WR]);
 
 	/* wait at most one second for command reply */
 	error = mtx_sleep(&rq, &sc->sc_mtx, 0 , "zydcmd", hz);
@@ -2267,7 +2267,7 @@ zyd_bulk_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		/*
 		 * At the end of a USB callback it is always safe to unlock
@@ -2299,7 +2299,7 @@ tr_setup:
 
 		if (error != USB_ERR_CANCELLED) {
 			/* try to clear stall first */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2394,7 +2394,7 @@ tr_setup:
 
 			usbd_xfer_set_frame_len(xfer, 0, ZYD_TX_DESC_SIZE + m->m_pkthdr.len);
 			usbd_xfer_set_priv(xfer, data);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		zyd_start(sc);
 		break;
@@ -2418,7 +2418,7 @@ tr_setup:
 			 * errors occur, hence clearing stall
 			 * introduces a 50 ms delay:
 			 */
-			usbd_xfer_set_stall(xfer);
+			usbd_xfer_set_stall_locked(xfer);
 			goto tr_setup;
 		}
 		break;
@@ -2540,7 +2540,7 @@ zyd_tx_start(struct zyd_softc *sc, struct mbuf *m0, struct ieee80211_node *ni)
 		rate);
 
 	STAILQ_INSERT_TAIL(&sc->tx_q, data, next);
-	usbd_transfer_start(sc->sc_xfer[ZYD_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[ZYD_BULK_WR]);
 
 	return (0);
 }
@@ -2743,9 +2743,9 @@ zyd_init_locked(struct zyd_softc *sc)
 	zyd_write32_m(sc, ZYD_CR_INTERRUPT, ZYD_HWINT_MASK);
 
 	sc->sc_flags |= ZYD_FLAG_RUNNING;
-	usbd_xfer_set_stall(sc->sc_xfer[ZYD_BULK_WR]);
-	usbd_transfer_start(sc->sc_xfer[ZYD_BULK_RD]);
-	usbd_transfer_start(sc->sc_xfer[ZYD_INTR_RD]);
+	usbd_xfer_set_stall_locked(sc->sc_xfer[ZYD_BULK_WR]);
+	usbd_transfer_start_locked(sc->sc_xfer[ZYD_BULK_RD]);
+	usbd_transfer_start_locked(sc->sc_xfer[ZYD_INTR_RD]);
 
 	return;
 

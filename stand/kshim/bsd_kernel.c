@@ -455,7 +455,7 @@ void
 callout_process(int timeout)
 {
 	ticks += timeout;
-	usb_proc_msignal(usb_process + 2, &callout_msg[0], &callout_msg[1]);
+	usb_proc_msignal_locked(usb_process + 2, &callout_msg[0], &callout_msg[1]);
 }
 
 static void
@@ -1197,7 +1197,7 @@ repeat:
 }
 
 void   *
-usb_proc_msignal(struct usb_process *up, void *_pm0, void *_pm1)
+usb_proc_msignal_locked(struct usb_process *up, void *_pm0, void *_pm1)
 {
 	struct usb_proc_msg *pm0 = _pm0;
 	struct usb_proc_msg *pm1 = _pm1;
@@ -1259,27 +1259,27 @@ usb_proc_msignal(struct usb_process *up, void *_pm0, void *_pm1)
 }
 
 /*------------------------------------------------------------------------*
- *	usb_proc_is_gone
+ *	usb_proc_is_gone_locked
  *
  * Return values:
  *    0: USB process is running
  * Else: USB process is tearing down
  *------------------------------------------------------------------------*/
 uint8_t
-usb_proc_is_gone(struct usb_process *up)
+usb_proc_is_gone_locked(struct usb_process *up)
 {
 	return (0);
 }
 
 /*------------------------------------------------------------------------*
- *	usb_proc_mwait
+ *	usb_proc_mwait_locked
  *
  * This function will return when the USB process message pointed to
  * by "pm" is no longer on a queue. This function must be called
  * having "usb_proc_mtx" locked.
  *------------------------------------------------------------------------*/
 void
-usb_proc_mwait(struct usb_process *up, void *_pm0, void *_pm1)
+usb_proc_mwait_locked(struct usb_process *up, void *_pm0, void *_pm1)
 {
 	struct usb_proc_msg *pm0 = _pm0;
 	struct usb_proc_msg *pm1 = _pm1;

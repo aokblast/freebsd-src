@@ -934,7 +934,7 @@ uhso_probe_iface(struct uhso_softc *sc, int index,
 			ucom_set_pnpinfo_usb(&sc->sc_super_ucom, sc->sc_dev);
 
 			mtx_lock(&sc->sc_mtx);
-			usbd_transfer_start(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
+			usbd_transfer_start_locked(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
 			mtx_unlock(&sc->sc_mtx);
 		}
 	} else if ((UHSO_IFACE_USB_TYPE(type) & UHSO_IF_BULK) &&
@@ -1126,20 +1126,20 @@ uhso_mux_intr_callback(struct usb_xfer *xfer, usb_error_t error)
 		usbd_xfer_set_priv(
 		    sc->sc_tty[mux].ht_xfer[UHSO_CTRL_READ],
 		    &sc->sc_tty[mux]);
-		usbd_transfer_start(sc->sc_tty[mux].ht_xfer[UHSO_CTRL_READ]);
+		usbd_transfer_start_locked(sc->sc_tty[mux].ht_xfer[UHSO_CTRL_READ]);
 
 		break;
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		UHSO_DPRINTF(0, "error: %s\n", usbd_errstr(error));
 		if (error == USB_ERR_CANCELLED)
 			break;
 
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1169,7 +1169,7 @@ uhso_mux_read_callback(struct usb_xfer *xfer, usb_error_t error)
 		UHSO_DPRINTF(3, "got %d bytes on mux port %d\n", len,
 		    ht->ht_muxport);
 		if (len <= 0) {
-			usbd_transfer_start(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
+			usbd_transfer_start_locked(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
 			break;
 		}
 
@@ -1192,13 +1192,13 @@ tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, sizeof(req));
 		usbd_xfer_set_frame_len(xfer, 1, 1024);
 		usbd_xfer_set_frames(xfer, 2);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		UHSO_DPRINTF(0, "error: %s\n", usbd_errstr(error));
 		if (error == USB_ERR_CANCELLED)
 			break;
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1249,14 +1249,14 @@ tr_setup:
 			UHSO_DPRINTF(3, "Prepared %d bytes for transmit "
 			    "on muxport %d\n", actlen, ht->ht_muxport);
 
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 	default:
 		UHSO_DPRINTF(0, "error: %s\n", usbd_errstr(error));
 		if (error == USB_ERR_CANCELLED)
 			break;
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1312,13 +1312,13 @@ uhso_bs_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 	break;
 	default:
 		UHSO_DPRINTF(0, "error: %s\n", usbd_errstr(error));
 		if (error == USB_ERR_CANCELLED)
 			break;
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1341,7 +1341,7 @@ tr_setup:
 		pc = usbd_xfer_get_frame(xfer, 0);
 		if (ucom_get_data(&sc->sc_ucom[0], pc, 0, 8192, &actlen)) {
 			usbd_xfer_set_frame_len(xfer, 0, actlen);
-			usbd_transfer_submit(xfer);
+			usbd_transfer_submit_locked(xfer);
 		}
 		break;
 	break;
@@ -1349,7 +1349,7 @@ tr_setup:
 		UHSO_DPRINTF(0, "error: %s\n", usbd_errstr(error));
 		if (error == USB_ERR_CANCELLED)
 			break;
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1427,7 +1427,7 @@ tr_setup:
 	default:
 		if (error == USB_ERR_CANCELLED)
 			break;
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1483,13 +1483,13 @@ uhso_ucom_start_read(struct ucom_softc *ucom)
 
 	if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_MUX) {
 		sc->sc_tty[ucom->sc_subunit].ht_open = 1;
-		usbd_transfer_start(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
 	}
 	else if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_BULK) {
 		sc->sc_tty[0].ht_open = 1;
-		usbd_transfer_start(sc->sc_xfer[UHSO_BULK_ENDPT_READ]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHSO_BULK_ENDPT_READ]);
 		if (sc->sc_xfer[UHSO_BULK_ENDPT_INTR] != NULL)
-			usbd_transfer_start(sc->sc_xfer[UHSO_BULK_ENDPT_INTR]);
+			usbd_transfer_start_locked(sc->sc_xfer[UHSO_BULK_ENDPT_INTR]);
 	}
 }
 
@@ -1501,14 +1501,14 @@ uhso_ucom_stop_read(struct ucom_softc *ucom)
 
 	if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_MUX) {
 		sc->sc_tty[ucom->sc_subunit].ht_open = 0;
-		usbd_transfer_stop(
+		usbd_transfer_stop_locked(
 		    sc->sc_tty[ucom->sc_subunit].ht_xfer[UHSO_CTRL_READ]);
 	}
 	else if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_BULK) {
 		sc->sc_tty[0].ht_open = 0;
-		usbd_transfer_start(sc->sc_xfer[UHSO_BULK_ENDPT_READ]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHSO_BULK_ENDPT_READ]);
 		if (sc->sc_xfer[UHSO_BULK_ENDPT_INTR] != NULL)
-			usbd_transfer_stop(sc->sc_xfer[UHSO_BULK_ENDPT_INTR]);
+			usbd_transfer_stop_locked(sc->sc_xfer[UHSO_BULK_ENDPT_INTR]);
 	}
 }
 
@@ -1520,16 +1520,16 @@ uhso_ucom_start_write(struct ucom_softc *ucom)
 	if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_MUX) {
 		UHSO_DPRINTF(3, "local unit %d\n", ucom->sc_subunit);
 
-		usbd_transfer_start(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHSO_MUX_ENDPT_INTR]);
 
 		usbd_xfer_set_priv(
 		    sc->sc_tty[ucom->sc_subunit].ht_xfer[UHSO_CTRL_WRITE],
 		    &sc->sc_tty[ucom->sc_subunit]);
-		usbd_transfer_start(
+		usbd_transfer_start_locked(
 		    sc->sc_tty[ucom->sc_subunit].ht_xfer[UHSO_CTRL_WRITE]);
 	}
 	else if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_BULK) {
-		usbd_transfer_start(sc->sc_xfer[UHSO_BULK_ENDPT_WRITE]);
+		usbd_transfer_start_locked(sc->sc_xfer[UHSO_BULK_ENDPT_WRITE]);
 	}
 }
 
@@ -1539,11 +1539,11 @@ uhso_ucom_stop_write(struct ucom_softc *ucom)
 	struct uhso_softc *sc = ucom->sc_parent;
 
 	if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_MUX) {
-		usbd_transfer_stop(
+		usbd_transfer_stop_locked(
 		    sc->sc_tty[ucom->sc_subunit].ht_xfer[UHSO_CTRL_WRITE]);
 	}
 	else if (UHSO_IFACE_USB_TYPE(sc->sc_type) & UHSO_IF_BULK) {
-		usbd_transfer_stop(sc->sc_xfer[UHSO_BULK_ENDPT_WRITE]);
+		usbd_transfer_stop_locked(sc->sc_xfer[UHSO_BULK_ENDPT_WRITE]);
 	}
 }
 
@@ -1634,13 +1634,13 @@ uhso_ifnet_read_callback(struct usb_xfer *xfer, usb_error_t error)
 	case USB_ST_SETUP:
 tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, usbd_xfer_max_len(xfer));
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 		break;
 	default:
 		UHSO_DPRINTF(0, "error: %s\n", usbd_errstr(error));
 		if (error == USB_ERR_CANCELLED)
 			break;
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1815,7 +1815,7 @@ tr_setup:
 		usbd_xfer_set_frame_len(xfer, 0, m->m_pkthdr.len);
 		pc = usbd_xfer_get_frame(xfer, 0);
 		usbd_m_copy_in(pc, 0, m, 0, m->m_pkthdr.len);
-		usbd_transfer_submit(xfer);
+		usbd_transfer_submit_locked(xfer);
 
 		BPF_MTAP(ifp, m);
 		m_freem(m);
@@ -1824,7 +1824,7 @@ tr_setup:
 		UHSO_DPRINTF(0, "error: %s\n", usbd_errstr(error));
 		if (error == USB_ERR_CANCELLED)
 			break;
-		usbd_xfer_set_stall(xfer);
+		usbd_xfer_set_stall_locked(xfer);
 		goto tr_setup;
 	}
 }
@@ -1912,8 +1912,8 @@ uhso_if_start(if_t ifp)
 	}
 
 	mtx_lock(&sc->sc_mtx);
-	usbd_transfer_start(sc->sc_if_xfer[UHSO_IFNET_READ]);
-	usbd_transfer_start(sc->sc_if_xfer[UHSO_IFNET_WRITE]);
+	usbd_transfer_start_locked(sc->sc_if_xfer[UHSO_IFNET_READ]);
+	usbd_transfer_start_locked(sc->sc_if_xfer[UHSO_IFNET_WRITE]);
 	mtx_unlock(&sc->sc_mtx);
 	UHSO_DPRINTF(3, "interface started\n");
 }
@@ -1922,7 +1922,7 @@ static void
 uhso_if_stop(struct uhso_softc *sc)
 {
 
-	usbd_transfer_stop(sc->sc_if_xfer[UHSO_IFNET_READ]);
-	usbd_transfer_stop(sc->sc_if_xfer[UHSO_IFNET_WRITE]);
+	usbd_transfer_stop_locked(sc->sc_if_xfer[UHSO_IFNET_READ]);
+	usbd_transfer_stop_locked(sc->sc_if_xfer[UHSO_IFNET_WRITE]);
 	if_setdrvflagbits(sc->sc_ifp, 0, (IFF_DRV_RUNNING | IFF_DRV_OACTIVE));
 }
