@@ -85,6 +85,32 @@
 #define CROS_EC_MEMMAP_BASE	0x900U
 #define CROS_EC_MEMMAP_MAGIC	0x20U	/* offsets of 'E' and 'C' within base */
 
+/*
+ * Microchip Embedded Controller (MEC) EMI (External Memory Interface).
+ *
+ * Framework laptops use a MEC1705 as the ChromeOS EC.  On MEC hardware the
+ * packet buffer and memory map are NOT directly accessible via sequential
+ * I/O reads; instead all host access goes through an indirect EMI window:
+ *
+ *   0x800  H2EC    Host→EC doorbell (1 byte write)
+ *   0x801  EC2H    EC→Host doorbell (1 byte read)
+ *   0x802  ADDR    16-bit EMI address register (write)
+ *   0x804  DATA    32-bit EMI data register (read/write)
+ *
+ * The address register encodes a 4-byte-aligned EC address in bits [15:2]
+ * and an access type in bits [1:0].  We always use LONG_AUTOINC (3), which
+ * lets the 4 data bytes be addressed individually by offset from 0x804.
+ *
+ * EC address space layout seen through the EMI:
+ *   [0x000, 0x0FF]  host command packet buffer
+ *   [0x100, 0x1FF]  EC memory map  (≡ standard LPC 0x900–0x9FF)
+ */
+#define MEC_EMI_ADDR_PORT	0x802U	/* 16-bit address register */
+#define MEC_EMI_DATA_PORT	0x804U	/* 32-bit data register */
+#define MEC_ACCESS_LONG_AUTOINC	0x3U	/* access type: long, auto-increment */
+#define MEC_EC_PACKET_OFF	0x000U	/* packet buffer base in EC address space */
+#define MEC_EC_MEMMAP_OFF	0x100U	/* memmap base in EC address space */
+
 /* ---------- driver softc ---------- */
 
 struct cros_ec_softc {
@@ -146,6 +172,13 @@ struct cros_ec_softc {
 	int			 ec_cb_active;
 	struct cv		 ec_cb_drain;
 
+	/*
+	 * ec_is_mec: 1 if this is a Microchip MEC variant that requires
+	 * indirect EMI I/O for the packet buffer and memory map.
+	 * Set in cros_ec_attach() after the EC signature check.
+	 */
+	int			 ec_is_mec;
+
 	/* Motion sensor children enumerated from MOTIONSENSE_CMD_DUMP. */
 	STAILQ_HEAD(, cros_ec_sensor_info) ec_sensors;
 };
@@ -176,6 +209,104 @@ cros_ec_write_cmd(struct cros_ec_softc *sc, uint8_t cmd)
 	    sc->ec_cmd_off, cmd);
 }
 
+/* ---------- MEC EMI indirect I/O ---------- */
+
+/*
+ * mec_emi_write — write len bytes from buf to MEC EC address ec_off.
+ *
+ * Algorithm (mirrors Linux cros_ec_lpc_io_bytes_mec):
+ *   1. For bytes before the first 4-byte boundary: set address each time,
+ *      write individual bytes to DATA_PORT + (offset & 3).
+ *   2. For each aligned 4-byte chunk: set address once with LONG_AUTOINC,
+ *      write 32 bits to DATA_PORT (auto-increments EC address by 4 after).
+ *   3. For trailing bytes: same as step 1.
+ *
+ * Returns the byte checksum of all bytes written.
+ */
+static uint8_t
+mec_emi_write(unsigned int ec_off, const void *buf, size_t len)
+{
+	const uint8_t *p = buf;
+	uint8_t sum = 0;
+	uint32_t val;
+	size_t i = 0;
+
+	/* Unaligned leading bytes. */
+	while (i < len && ((ec_off + i) & 3) != 0) {
+		unsigned int off = ec_off + i;
+		outw(MEC_EMI_ADDR_PORT,
+		    (uint16_t)((off & ~3U) | MEC_ACCESS_LONG_AUTOINC));
+		outb(MEC_EMI_DATA_PORT + (off & 3U), p[i]);
+		sum += p[i++];
+	}
+
+	/* Aligned 4-byte words. */
+	while (i + 4 <= len) {
+		memcpy(&val, &p[i], 4);
+		outw(MEC_EMI_ADDR_PORT,
+		    (uint16_t)((ec_off + i) | MEC_ACCESS_LONG_AUTOINC));
+		outl(MEC_EMI_DATA_PORT, val);
+		sum += p[i] + p[i+1] + p[i+2] + p[i+3];
+		i += 4;
+	}
+
+	/* Trailing bytes. */
+	while (i < len) {
+		unsigned int off = ec_off + i;
+		outw(MEC_EMI_ADDR_PORT,
+		    (uint16_t)((off & ~3U) | MEC_ACCESS_LONG_AUTOINC));
+		outb(MEC_EMI_DATA_PORT + (off & 3U), p[i]);
+		sum += p[i++];
+	}
+
+	return (sum);
+}
+
+/*
+ * mec_emi_read — read len bytes from MEC EC address ec_off into buf.
+ * Returns the byte checksum of all bytes read.
+ */
+static uint8_t
+mec_emi_read(unsigned int ec_off, void *buf, size_t len)
+{
+	uint8_t *p = buf;
+	uint8_t sum = 0;
+	uint32_t val;
+	size_t i = 0;
+
+	/* Unaligned leading bytes. */
+	while (i < len && ((ec_off + i) & 3) != 0) {
+		unsigned int off = ec_off + i;
+		outw(MEC_EMI_ADDR_PORT,
+		    (uint16_t)((off & ~3U) | MEC_ACCESS_LONG_AUTOINC));
+		p[i] = inb(MEC_EMI_DATA_PORT + (off & 3U));
+		sum += p[i++];
+	}
+
+	/* Aligned 4-byte words. */
+	while (i + 4 <= len) {
+		outw(MEC_EMI_ADDR_PORT,
+		    (uint16_t)((ec_off + i) | MEC_ACCESS_LONG_AUTOINC));
+		val = inl(MEC_EMI_DATA_PORT);
+		memcpy(&p[i], &val, 4);
+		sum += p[i] + p[i+1] + p[i+2] + p[i+3];
+		i += 4;
+	}
+
+	/* Trailing bytes. */
+	while (i < len) {
+		unsigned int off = ec_off + i;
+		outw(MEC_EMI_ADDR_PORT,
+		    (uint16_t)((off & ~3U) | MEC_ACCESS_LONG_AUTOINC));
+		p[i] = inb(MEC_EMI_DATA_PORT + (off & 3U));
+		sum += p[i++];
+	}
+
+	return (sum);
+}
+
+/* ---------- packet region I/O (dispatches on ec_is_mec) ---------- */
+
 /*
  * Write len bytes from buf into the packet region at offset off.
  * Returns the running byte sum (for checksum calculation).
@@ -184,6 +315,10 @@ static uint8_t
 cros_ec_pkt_write(struct cros_ec_softc *sc, bus_size_t off,
     const void *buf, size_t len)
 {
+	if (sc->ec_is_mec)
+		return (mec_emi_write(MEC_EC_PACKET_OFF + (unsigned int)off,
+		    buf, len));
+
 	const uint8_t *p = buf;
 	uint8_t sum = 0;
 	size_t i;
@@ -204,6 +339,10 @@ static uint8_t
 cros_ec_pkt_read(struct cros_ec_softc *sc, bus_size_t off,
     void *buf, size_t len)
 {
+	if (sc->ec_is_mec)
+		return (mec_emi_read(MEC_EC_PACKET_OFF + (unsigned int)off,
+		    buf, len));
+
 	uint8_t *p = buf;
 	uint8_t sum = 0;
 	size_t i;
@@ -225,6 +364,12 @@ cros_ec_pkt_read(struct cros_ec_softc *sc, bus_size_t off,
 static int
 cros_ec_memmap_read(struct cros_ec_softc *sc, bus_size_t offset)
 {
+	uint8_t val;
+
+	if (sc->ec_is_mec) {
+		mec_emi_read(MEC_EC_MEMMAP_OFF + (unsigned int)offset, &val, 1);
+		return ((int)val);
+	}
 	if (sc->ec_mm_tag == 0)
 		return (-1);
 	return ((int)bus_space_read_1(sc->ec_mm_tag, sc->ec_mm_handle,
@@ -590,8 +735,10 @@ cros_ec_sysctl_setup(device_t dev, struct cros_ec_softc *sc)
 	ADD_BATT("flags",         BATT_FIELD_FLAGS,      "Status flags (EC_BATT_FLAG_*)");
 #undef ADD_BATT
 
-	/* Thermal subtree: only add sensors present in the memmap at attach. */
-	if (sc->ec_mm_tag == 0)
+	/* Thermal subtree: only add sensors present in the memmap at attach.
+	 * On MEC, cros_ec_memmap_read() goes through EMI even though ec_mm_tag
+	 * is 0, so treat ec_is_mec as an alternative "memmap available" signal. */
+	if (sc->ec_mm_tag == 0 && !sc->ec_is_mec)
 		return;
 
 	therm_tree = SYSCTL_ADD_NODE(ctx, SYSCTL_CHILDREN(tree),
@@ -910,12 +1057,36 @@ cros_ec_probe(device_t dev)
 	 * before resource allocation and does not require locking.
 	 */
 	if (match != NULL && strcmp(match, "PNP0C09") == 0) {
-		if (inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC)     != 'E' ||
-		    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC + 1) != 'C')
-			return (ENXIO);
-		/* Return -1 to beat acpi_ec(4)'s score of 0. */
-		device_set_desc(dev, "ChromeOS Embedded Controller (LPC)");
-		return (-1);
+		/*
+		 * First try the standard direct I/O signature check at 0x920.
+		 */
+		if (inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC)     == 'E' &&
+		    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC + 1) == 'C') {
+			device_set_desc(dev, "ChromeOS Embedded Controller (LPC)");
+			return (-1);
+		}
+
+		/*
+		 * Standard check failed.  Try the MEC EMI indirect path:
+		 * write the EC address 0x120 (= memmap base 0x100 + magic
+		 * offset 0x20) to the MEC address register, then read the
+		 * 'E','C' bytes via individual byte offsets of the data port.
+		 *
+		 * MEC_EC_MEMMAP_OFF + CROS_EC_MEMMAP_MAGIC = 0x100 + 0x20 = 0x120.
+		 * 0x120 is 4-byte aligned, so byte 0 is at DATA_PORT + 0,
+		 * byte 1 is at DATA_PORT + 1.
+		 */
+		outw(MEC_EMI_ADDR_PORT,
+		    (uint16_t)((MEC_EC_MEMMAP_OFF + CROS_EC_MEMMAP_MAGIC) |
+		    MEC_ACCESS_LONG_AUTOINC));
+		if (inb(MEC_EMI_DATA_PORT)     == 'E' &&
+		    inb(MEC_EMI_DATA_PORT + 1) == 'C') {
+			device_set_desc(dev,
+			    "ChromeOS Embedded Controller (MEC LPC)");
+			return (-1);
+		}
+
+		return (ENXIO);
 	}
 
 	device_set_desc(dev, "ChromeOS Embedded Controller (LPC)");
@@ -946,14 +1117,29 @@ cros_ec_attach(device_t dev)
 	if (error != 0)
 		goto fail_mtx;
 
+	/*
+	 * Detect MEC vs standard LPC.
+	 *
+	 * Standard: direct inb() at 0x920/0x921 returns 'E','C'.
+	 * MEC (Framework): those ports don't contain the signature; we
+	 *   confirmed in probe() that the MEC EMI path works instead.
+	 *
+	 * Re-using the same inb() test here avoids storing extra state
+	 * from probe() — the cost is two port reads, which is negligible.
+	 */
+	sc->ec_is_mec = (
+	    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC)     != 'E' ||
+	    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC + 1) != 'C');
+
 	cros_ec_sysctl_setup(dev, sc);
 
 	device_printf(dev,
-	    "cmd port 0x%jx+%ju, packet region %ju bytes%s\n",
+	    "cmd port 0x%jx+%ju, packet region %ju bytes, %s%s\n",
 	    (uintmax_t)rman_get_start(sc->ec_cmd_res),
 	    (uintmax_t)sc->ec_cmd_off,
 	    (uintmax_t)rman_get_size(sc->ec_pkt_res),
-	    sc->ec_mm_tag != 0 ? ", memmap present" : "");
+	    sc->ec_is_mec ? "MEC EMI, " : "",
+	    (sc->ec_mm_tag != 0 || sc->ec_is_mec) ? "memmap present" : "no memmap");
 
 	/* Enumerate motion sensors and create child devices. */
 	cros_ec_enumerate_sensors(dev);
