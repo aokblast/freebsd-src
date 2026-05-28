@@ -1361,6 +1361,8 @@ dev/clk/clk_gate.c		optional clk
 dev/clk/clk_link.c		optional clk
 dev/clk/clk_mux.c		optional clk
 dev/cpufreq/ichss.c		optional cpufreq pci
+dev/cros_ec/cros_ec_lpc.c	optional cros_ec acpi
+dev/cros_ec/cros_ec_gyro.c	optional cros_ec evdev
 dev/cxgb/cxgb_main.c		optional cxgb pci \
 	compile-with "${NORMAL_C} -I$S/dev/cxgb"
 dev/cxgb/cxgb_sge.c		optional cxgb pci \
