@@ -110,6 +110,14 @@
 #define MEC_ACCESS_LONG_AUTOINC	0x3U	/* access type: long, auto-increment */
 #define MEC_EC_PACKET_OFF	0x000U	/* packet buffer base in EC address space */
 #define MEC_EC_MEMMAP_OFF	0x100U	/* memmap base in EC address space */
+/*
+ * The EMI window is exactly 8 I/O ports:
+ *   0x800 H2EC doorbell, 0x801 EC2H doorbell,
+ *   0x802-0x803 ADDR register, 0x804-0x807 DATA register.
+ * For MEC systems we reserve only these 8 bytes; the full packet buffer
+ * and memory map are reached through the window, not via direct I/O.
+ */
+#define MEC_EMI_SIZE		8U
 
 /* ---------- driver softc ---------- */
 
@@ -176,8 +184,17 @@ struct cros_ec_softc {
 	 * ec_is_mec: 1 if this is a Microchip MEC variant that requires
 	 * indirect EMI I/O for the packet buffer and memory map.
 	 * Set in cros_ec_attach() after the EC signature check.
+	 *
+	 * ec_mec_mutex: ACPI AML named mutex "MCEM" in the EC device's scope.
+	 * Non-NULL only when ec_is_mec == 1 and AcpiGetHandle() found "MCEM".
+	 * Must be acquired BEFORE ec_mtx; released AFTER ec_mtx.  This prevents
+	 * ACPI firmware _Q (query) handlers from interleaving their own EMI
+	 * address/data register writes with ours, which would corrupt packets.
+	 * AcpiAcquireMutex() can sleep, so it must never be called while
+	 * ec_mtx (or any other non-sleepable lock) is held.
 	 */
 	int			 ec_is_mec;
+	ACPI_HANDLE		 ec_mec_mutex;
 
 	/* Motion sensor children enumerated from MOTIONSENSE_CMD_DUMP. */
 	STAILQ_HEAD(, cros_ec_sensor_info) ec_sensors;
@@ -421,6 +438,19 @@ cros_ec_send_command(struct cros_ec_softc *sc,
 	    (size_t)resp_size + sizeof(rhdr) > CROS_EC_MAX_PKT)
 		return (EINVAL);
 
+	/*
+	 * Acquire the AML mutex before ec_mtx.
+	 *
+	 * AcpiAcquireMutex() can sleep (it waits for ACPI firmware to release
+	 * the mutex if firmware currently holds it), so it MUST be called
+	 * before taking any non-sleepable lock.  The timeout 0xFFFF means
+	 * "wait indefinitely" in ACPICA units.
+	 *
+	 * Locking order: AML mutex → ec_mtx (never the reverse).
+	 */
+	if (sc->ec_is_mec && sc->ec_mec_mutex != NULL)
+		AcpiAcquireMutex(sc->ec_mec_mutex, NULL, 0xFFFF);
+
 	mtx_lock(&sc->ec_mtx);
 
 	/* Build request header. */
@@ -502,6 +532,9 @@ cros_ec_send_command(struct cros_ec_softc *sc,
 
 out:
 	mtx_unlock(&sc->ec_mtx);
+	/* Release AML mutex after ec_mtx, mirroring the acquire order. */
+	if (sc->ec_is_mec && sc->ec_mec_mutex != NULL)
+		AcpiReleaseMutex(sc->ec_mec_mutex, NULL);
 	return (error);
 }
 
@@ -875,24 +908,51 @@ cros_ec_attach_resources(device_t dev, struct cros_ec_softc *sc)
 
 	if (sc->ec_pkt_res == NULL) {
 		sc->ec_pkt_rid = 17;	/* synthetic RID */
-		bus_set_resource(dev, SYS_RES_IOPORT, sc->ec_pkt_rid,
-		    CROS_EC_ADDR_HOST_PKT, CROS_EC_SIZE_HOST_PKT);
-		sc->ec_pkt_res = bus_alloc_resource_any(dev, SYS_RES_IOPORT,
-		    &sc->ec_pkt_rid, RF_ACTIVE);
-		if (sc->ec_pkt_res == NULL) {
-			device_printf(dev,
-			    "cannot map packet region at 0x%03x\n",
-			    CROS_EC_ADDR_HOST_PKT);
-			error = ENXIO;
-			goto fail;
+		if (sc->ec_is_mec) {
+			/*
+			 * MEC: the entire packet buffer and memory map are
+			 * reached through the 8-byte EMI window (0x800-0x807).
+			 * Reserve only those ports.  mec_emi_write/read issue
+			 * raw outw/outl/inb/inl instructions directly, so
+			 * bus_space setup is not needed.  The memory map is
+			 * likewise accessed through EMI, so ec_mm_tag stays 0.
+			 */
+			bus_set_resource(dev, SYS_RES_IOPORT, sc->ec_pkt_rid,
+			    CROS_EC_ADDR_HOST_PKT, MEC_EMI_SIZE);
+			sc->ec_pkt_res = bus_alloc_resource_any(dev,
+			    SYS_RES_IOPORT, &sc->ec_pkt_rid, RF_ACTIVE);
+			if (sc->ec_pkt_res == NULL) {
+				device_printf(dev,
+				    "cannot reserve MEC EMI ports at 0x%03x\n",
+				    CROS_EC_ADDR_HOST_PKT);
+				error = ENXIO;
+				goto fail;
+			}
+			/* ec_pkt_tag/handle intentionally not set for MEC. */
+		} else {
+			/*
+			 * Standard LPC: synthesise the full 0x200-byte range
+			 * 0x800-0x9FF.  The packet buffer occupies 0x800-0x8FF
+			 * and the memory map is embedded at offset +0x100.
+			 */
+			bus_set_resource(dev, SYS_RES_IOPORT, sc->ec_pkt_rid,
+			    CROS_EC_ADDR_HOST_PKT, CROS_EC_SIZE_HOST_PKT);
+			sc->ec_pkt_res = bus_alloc_resource_any(dev,
+			    SYS_RES_IOPORT, &sc->ec_pkt_rid, RF_ACTIVE);
+			if (sc->ec_pkt_res == NULL) {
+				device_printf(dev,
+				    "cannot map packet region at 0x%03x\n",
+				    CROS_EC_ADDR_HOST_PKT);
+				error = ENXIO;
+				goto fail;
+			}
+			sc->ec_pkt_tag    = rman_get_bustag(sc->ec_pkt_res);
+			sc->ec_pkt_handle = rman_get_bushandle(sc->ec_pkt_res);
+			/* 0x200-byte range; memmap embedded at +0x100. */
+			sc->ec_mm_tag    = sc->ec_pkt_tag;
+			sc->ec_mm_handle = sc->ec_pkt_handle;
+			sc->ec_mm_off    = 0x100;
 		}
-		sc->ec_pkt_tag    = rman_get_bustag(sc->ec_pkt_res);
-		sc->ec_pkt_handle = rman_get_bushandle(sc->ec_pkt_res);
-		/* Synthesised range is CROS_EC_SIZE_HOST_PKT = 0x200 bytes,
-		 * so the memmap is embedded at +0x100. */
-		sc->ec_mm_tag    = sc->ec_pkt_tag;
-		sc->ec_mm_handle = sc->ec_pkt_handle;
-		sc->ec_mm_off    = 0x100;
 	}
 
 	return (0);
@@ -1108,6 +1168,49 @@ cros_ec_attach(device_t dev)
 	STAILQ_INIT(&sc->ec_sensors);
 
 	/*
+	 * Detect MEC vs standard LPC BEFORE allocating resources.
+	 *
+	 * cros_ec_attach_resources() synthesises the packet-buffer resource
+	 * at the correct size — 8 bytes for MEC (EMI window only) vs 512
+	 * bytes for standard LPC (packet buffer + embedded memmap) — so it
+	 * needs ec_is_mec to be set first.
+	 *
+	 * Standard: direct inb() at 0x920/0x921 returns 'E','C'.
+	 * MEC (Framework): those ports don't contain the signature; probe()
+	 *   confirmed the MEC EMI path works instead.
+	 */
+	sc->ec_is_mec = (
+	    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC)     != 'E' ||
+	    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC + 1) != 'C');
+
+	/*
+	 * On MEC hardware, look up the AML mutex "MCEM" in the EC device's
+	 * ACPI scope.  ACPI firmware EC query handlers (_Qxx methods) acquire
+	 * this mutex before touching the EMI; we must do the same or our EMI
+	 * address register write and data register read/write can be interleaved
+	 * with the firmware's, corrupting both transactions.
+	 *
+	 * Failure to find the mutex is non-fatal: we warn and proceed without
+	 * synchronisation (works on systems whose firmware doesn't use MCEM,
+	 * but unsafe on Framework boards).
+	 */
+	if (sc->ec_is_mec) {
+		ACPI_STATUS aml_status;
+
+		aml_status = AcpiGetHandle(sc->ec_handle, "MCEM",
+		    &sc->ec_mec_mutex);
+		if (ACPI_FAILURE(aml_status)) {
+			device_printf(dev,
+			    "MCEM AML mutex not found (status 0x%x); "
+			    "MEC EMI access unsynchronized with ACPI firmware\n",
+			    aml_status);
+			sc->ec_mec_mutex = NULL;
+		} else {
+			device_printf(dev, "MCEM AML mutex found\n");
+		}
+	}
+
+	/*
 	 * Map I/O resources.  cros_ec_attach_resources() handles both the
 	 * GOOG0004 layout (all regions in _CRS) and the PNP0C09 layout used
 	 * by Framework laptops (only 0x62/0x66 in _CRS; canonical ChromeOS
@@ -1116,20 +1219,6 @@ cros_ec_attach(device_t dev)
 	error = cros_ec_attach_resources(dev, sc);
 	if (error != 0)
 		goto fail_mtx;
-
-	/*
-	 * Detect MEC vs standard LPC.
-	 *
-	 * Standard: direct inb() at 0x920/0x921 returns 'E','C'.
-	 * MEC (Framework): those ports don't contain the signature; we
-	 *   confirmed in probe() that the MEC EMI path works instead.
-	 *
-	 * Re-using the same inb() test here avoids storing extra state
-	 * from probe() — the cost is two port reads, which is negligible.
-	 */
-	sc->ec_is_mec = (
-	    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC)     != 'E' ||
-	    inb(CROS_EC_MEMMAP_BASE + CROS_EC_MEMMAP_MAGIC + 1) != 'C');
 
 	cros_ec_sysctl_setup(dev, sc);
 
