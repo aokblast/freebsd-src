@@ -36,6 +36,7 @@
 #include <sys/stat.h>
 #include <sys/acl.h>
 
+#include <assert.h>
 #include <err.h>
 #include <errno.h>
 #include <fts.h>
@@ -204,6 +205,8 @@ printlong(const DISPLAY *dp)
 	FTSENT *p;
 	NAMES *np;
 	char buf[20];
+	off_t *offsets;
+	int offsets_idx = 0;
 #ifdef COLORLS
 	int color_printed = 0;
 #endif
@@ -219,6 +222,9 @@ printlong(const DISPLAY *dp)
 			(void)printf("total %s\n", buf);
 		}
 	}
+
+	if (f_dired)
+		offsets = calloc(sizeof(*offsets), dp->entries * 2);
 
 	for (p = dp->list; p; p = p->fts_link) {
 		if (IS_NOPRINT(p))
@@ -258,7 +264,11 @@ printlong(const DISPLAY *dp)
 		if (f_color)
 			color_printed = colortype(sp->st_mode);
 #endif
+		if (f_dired)
+			offsets[offsets_idx++] = ftell(stdout);
 		(void)printname(p->fts_name);
+		if (f_dired)
+			offsets[offsets_idx++] = ftell(stdout);
 #ifdef COLORLS
 		if (f_color && color_printed)
 			endcolor(0);
@@ -268,6 +278,16 @@ printlong(const DISPLAY *dp)
 		if (S_ISLNK(sp->st_mode))
 			printlink(p);
 		(void)putchar('\n');
+	}
+
+	if (f_dired) {
+		assert(offsets_idx == dp->entries * 2);
+		printf("//DIRED//");
+		for (offsets_idx = 0; offsets_idx < dp->entries * 2;
+		    offsets_idx++)
+			printf(" %ld", offsets[offsets_idx] - dired_begin);
+		putchar('\n');
+		free(offsets);
 	}
 }
 

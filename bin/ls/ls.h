@@ -62,6 +62,8 @@ extern int f_type;		/* add type character for non-regular files */
 #ifdef COLORLS
 extern int f_color;		/* add type in color for non-regular files */
 #endif
+extern int f_dired;	  /* dired mode */
+extern off_t dired_begin; /* begin offset of the current file */
 
 typedef struct {
 	FTSENT *list;
