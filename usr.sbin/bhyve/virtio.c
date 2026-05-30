@@ -32,8 +32,11 @@
 
 #include <machine/atomic.h>
 
+#include <dev/pci/pcireg.h>
 #include <dev/virtio/pci/virtio_pci_legacy_var.h>
+#include <dev/virtio/pci/virtio_pci_modern_var.h>
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -81,6 +84,7 @@ vi_softc_linkup(struct virtio_softc *vs, struct virtio_consts *vc,
 	for (i = 0; i < vc->vc_nvq; i++) {
 		queues[i].vq_vs = vs;
 		queues[i].vq_num = i;
+		queues[i].vq_max_qsize = queues[i].vq_qsize;
 	}
 }
 
@@ -105,13 +109,22 @@ vi_reset_dev(struct virtio_softc *vs)
 	nvq = vs->vs_vc->vc_nvq;
 	for (vq = vs->vs_queues, i = 0; i < nvq; vq++, i++) {
 		vq->vq_flags = 0;
+		vq->vq_enabled = false;
 		vq->vq_last_avail = 0;
 		vq->vq_next_used = 0;
 		vq->vq_save_used = 0;
 		vq->vq_pfn = 0;
+		vq->vq_desc_addr = 0;
+		vq->vq_avail_addr = 0;
+		vq->vq_used_addr = 0;
 		vq->vq_msix_idx = VIRTIO_MSI_NO_VECTOR;
+		/* Restore queue size to device maximum */
+		if (vq->vq_max_qsize != 0)
+			vq->vq_qsize = vq->vq_max_qsize;
 	}
 	vs->vs_negotiated_caps = 0;
+	vs->vs_dev_feature_sel = 0;
+	vs->vs_drv_feature_sel = 0;
 	vs->vs_curq = 0;
 	/* vs->vs_status = 0; -- redundant */
 	if (vs->vs_isr)
@@ -134,6 +147,496 @@ vi_set_io_bar(struct virtio_softc *vs, int barnum)
 	 */
 	size = VIRTIO_PCI_CONFIG_OFF(1) + vs->vs_vc->vc_cfgsize;
 	pci_emul_alloc_bar(vs->vs_pi, barnum, PCIBAR_IO, size);
+}
+
+static void
+vi_cap_fill_common(struct virtio_pci_cap *cap, uint8_t cap_len,
+    uint8_t cap_type, uint8_t bar_type, uint32_t offset, uint32_t len)
+{
+	bzero(cap, cap_len);
+	cap->cap_vndr = PCIY_VENDOR;
+	cap->cap_len = cap_len;
+	cap->cfg_type = cap_type;
+	cap->bar = bar_type;
+	cap->offset = offset;
+	cap->length = len;
+}
+
+/*
+ * Set up modern VirtIO MMIO BAR (BAR 2) and add the required PCI vendor
+ * capabilities pointing into it.  Must be called after vi_intr_init().
+ * If allow_device_cfg is false, VIRTIO_PCI_CAP_DEVICE_CFG is omitted
+ * (for devices with no device-specific config space).
+ */
+int
+vi_set_modern_bar(struct virtio_softc *vs, bool allow_device_cfg)
+{
+	struct pci_devinst *pi = vs->vs_pi;
+	struct virtio_consts *vc = vs->vs_vc;
+	struct virtio_pci_cap cap;
+	struct virtio_pci_notify_cap ncap;
+	struct virtio_pci_cfg_cap ccap;
+	uint32_t notify_len;
+	int error;
+
+	notify_len = (uint32_t)vc->vc_nvq * VIRTIO_MODERN_NOTIFY_MULT;
+	if (notify_len < 4)
+		notify_len = 4;
+
+	error = pci_emul_alloc_bar(pi, VIRTIO_MODERN_BAR, PCIBAR_MEM32,
+	    VIRTIO_MODERN_BAR_SIZE);
+	if (error != 0)
+		return (error);
+
+	/* VIRTIO_PCI_CAP_COMMON_CFG */
+	vi_cap_fill_common(&cap, sizeof(cap), VIRTIO_PCI_CAP_COMMON_CFG,
+	    VIRTIO_MODERN_BAR, VIRTIO_MODERN_COMMON_CFG_OFFSET,
+	    VIRTIO_MODERN_COMMON_CFG_LEN);
+	error = pci_emul_add_capability(pi, (u_char *)&cap, sizeof(cap));
+	if (error != 0)
+		return (error);
+
+	/* VIRTIO_PCI_CAP_NOTIFY_CFG */
+	vi_cap_fill_common(&ncap.cap, sizeof(ncap), VIRTIO_PCI_CAP_NOTIFY_CFG,
+	    VIRTIO_MODERN_BAR, VIRTIO_MODERN_NOTIFY_OFFSET, notify_len);
+	ncap.notify_off_multiplier = VIRTIO_MODERN_NOTIFY_MULT;
+	error = pci_emul_add_capability(pi, (u_char *)&ncap, sizeof(ncap));
+	if (error != 0)
+		return (error);
+
+	/* VIRTIO_PCI_CAP_ISR_CFG */
+	vi_cap_fill_common(&cap, sizeof(cap), VIRTIO_PCI_CAP_ISR_CFG,
+	    VIRTIO_MODERN_BAR, VIRTIO_MODERN_ISR_CFG_OFFSET, VIRTIO_MODERN_ISR_CFG_LEN);
+	error = pci_emul_add_capability(pi, (u_char *)&cap, sizeof(cap));
+	if (error != 0)
+		return (error);
+
+	/* VIRTIO_PCI_CAP_DEVICE_CFG (only if device has config space) */
+	if (allow_device_cfg && vc->vc_cfgsize > 0) {
+		vi_cap_fill_common(&cap, sizeof(cap), VIRTIO_PCI_CAP_DEVICE_CFG,
+		    VIRTIO_MODERN_BAR, VIRTIO_MODERN_DEV_CFG_OFFSET,
+		    vc->vc_cfgsize);
+		error = pci_emul_add_capability(pi, (u_char *)&cap,
+		    sizeof(cap));
+		if (error != 0)
+			return (error);
+	}
+
+	/* VIRTIO_PCI_CAP_PCI_CFG (required by spec; provides alternative BAR access) */
+	vi_cap_fill_common(&ccap.cap, sizeof(ccap), VIRTIO_PCI_CAP_PCI_CFG, 0,
+	    0, 0);
+	error = pci_emul_add_capability(pi, (u_char *)&ccap, sizeof(ccap));
+	if (error != 0)
+		return (error);
+
+	vs->vs_flags |= VIRTIO_MODERN;
+	return (0);
+}
+
+/*
+ * Initialize a virtqueue from 64-bit modern addresses (called when the
+ * driver sets queue_enable = 1 in common_cfg).
+ */
+static void
+vi_vq_init_modern(struct virtio_softc *vs, struct vqueue_info *vq)
+{
+	struct vmctx *ctx = vs->vs_pi->pi_vmctx;
+	size_t desc_size, avail_size, used_size;
+
+	desc_size = (size_t)vq->vq_qsize * sizeof(struct vring_desc);
+	avail_size = (2 + (size_t)vq->vq_qsize + 1) * sizeof(uint16_t);
+	used_size = (2 + 2 * (size_t)vq->vq_qsize + 1) * sizeof(uint16_t);
+
+	vq->vq_desc = paddr_guest2host(ctx, vq->vq_desc_addr, desc_size);
+	vq->vq_avail = paddr_guest2host(ctx, vq->vq_avail_addr, avail_size);
+	vq->vq_used = paddr_guest2host(ctx, vq->vq_used_addr, used_size);
+
+	vq->vq_flags = VQ_ALLOC;
+	vq->vq_last_avail = 0;
+	vq->vq_next_used = 0;
+	vq->vq_save_used = 0;
+}
+
+/*
+ * Signal a device configuration change to the driver. Increments
+ * config_generation so the driver's consistency loop detects the change,
+ * then delivers the config interrupt.
+ */
+void
+vi_config_changed(struct virtio_softc *vs)
+{
+	VS_LOCK(vs);
+	vs->vs_config_gen++;
+	VS_UNLOCK(vs);
+	vi_interrupt(vs, VIRTIO_PCI_ISR_CONFIG, vs->vs_msix_cfg_idx);
+}
+
+/*
+ * Read handler for the common_cfg region of the modern MMIO BAR.
+ * off is the byte offset within common_cfg (relative to VIRTIO_MODERN_COMMON_CFG_OFFSET).
+ */
+static uint64_t
+vi_common_cfg_read(struct virtio_softc *vs, uint32_t off)
+{
+	struct virtio_consts *vc = vs->vs_vc;
+	struct vqueue_info *vq;
+	uint64_t value = 0;
+
+	switch (off) {
+	case VIRTIO_PCI_COMMON_DFSELECT:
+		value = vs->vs_dev_feature_sel;
+		break;
+	case VIRTIO_PCI_COMMON_DF:
+		if (vs->vs_dev_feature_sel == 0)
+			value = (uint32_t)vc->vc_hv_caps;
+		else if (vs->vs_dev_feature_sel == 1)
+			value = (uint32_t)(vc->vc_hv_caps >> 32);
+		break;
+	case VIRTIO_PCI_COMMON_GFSELECT:
+		value = vs->vs_drv_feature_sel;
+		break;
+	case VIRTIO_PCI_COMMON_GF:
+		if (vs->vs_drv_feature_sel == 0)
+			value = (uint32_t)vs->vs_negotiated_caps;
+		else if (vs->vs_drv_feature_sel == 1)
+			value = (uint32_t)(vs->vs_negotiated_caps >> 32);
+		break;
+	case VIRTIO_PCI_COMMON_MSIX:
+		value = vs->vs_msix_cfg_idx;
+		break;
+	case VIRTIO_PCI_COMMON_NUMQ:
+		value = (uint16_t)vc->vc_nvq;
+		break;
+	case VIRTIO_PCI_COMMON_STATUS:
+		value = vs->vs_status;
+		break;
+	case VIRTIO_PCI_COMMON_CFGGENERATION:
+		value = vs->vs_config_gen;
+		break;
+	case VIRTIO_PCI_COMMON_Q_SELECT:
+		value = (uint16_t)vs->vs_curq;
+		break;
+	case VIRTIO_PCI_COMMON_Q_SIZE:
+		value = vs->vs_curq < vc->vc_nvq ?
+		    vs->vs_queues[vs->vs_curq].vq_qsize :
+		    0;
+		break;
+	case VIRTIO_PCI_COMMON_Q_MSIX:
+		value = vs->vs_curq < vc->vc_nvq ?
+		    vs->vs_queues[vs->vs_curq].vq_msix_idx :
+		    VIRTIO_MSI_NO_VECTOR;
+		break;
+	case VIRTIO_PCI_COMMON_Q_ENABLE:
+		value = (vs->vs_curq < vc->vc_nvq) ?
+		    vs->vs_queues[vs->vs_curq].vq_enabled :
+		    0;
+		break;
+	case VIRTIO_PCI_COMMON_Q_NOFF:
+		/* queue_notify_off = queue index; multiplier = VIRTIO_MODERN_NOTIFY_MULT */
+		value = (vs->vs_curq < vc->vc_nvq) ? (uint16_t)vs->vs_curq : 0;
+		break;
+	case VIRTIO_PCI_COMMON_Q_DESCLO:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			value = (uint32_t)vq->vq_desc_addr;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_DESCHI:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			value = (uint32_t)(vq->vq_desc_addr >> 32);
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_AVAILLO:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			value = (uint32_t)vq->vq_avail_addr;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_AVAILHI:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			value = (uint32_t)(vq->vq_avail_addr >> 32);
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_USEDLO:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			value = (uint32_t)vq->vq_used_addr;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_USEDHI:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			value = (uint32_t)(vq->vq_used_addr >> 32);
+		}
+		break;
+	}
+	return (value);
+}
+
+/*
+ * Write handler for the common_cfg region of the modern MMIO BAR.
+ * off is the byte offset within common_cfg (relative to VIRTIO_MODERN_COMMON_CFG_OFFSET).
+ */
+static void
+vi_common_cfg_write(struct virtio_softc *vs, uint32_t off, uint64_t value)
+{
+	struct virtio_consts *vc = vs->vs_vc;
+	struct vqueue_info *vq;
+	uint64_t mask, bits;
+
+	switch (off) {
+	case VIRTIO_PCI_COMMON_DFSELECT:
+		vs->vs_dev_feature_sel = (uint32_t)value;
+		break;
+	case VIRTIO_PCI_COMMON_DF:
+		/* device_feature is read-only */
+		break;
+	case VIRTIO_PCI_COMMON_GFSELECT:
+		vs->vs_drv_feature_sel = (uint32_t)value;
+		break;
+	case VIRTIO_PCI_COMMON_GF:
+		if (vs->vs_drv_feature_sel <= 1) {
+			mask = (uint64_t)0xFFFFFFFF
+			    << (vs->vs_drv_feature_sel * 32);
+			bits = ((uint64_t)(uint32_t)value)
+			    << (vs->vs_drv_feature_sel * 32);
+			vs->vs_negotiated_caps = (vs->vs_negotiated_caps &
+						     ~mask) |
+			    (bits & vc->vc_hv_caps);
+		}
+		break;
+	case VIRTIO_PCI_COMMON_MSIX:
+		vs->vs_msix_cfg_idx = (uint16_t)value;
+		break;
+	case VIRTIO_PCI_COMMON_NUMQ:
+		/* num_queues is read-only */
+		break;
+	case VIRTIO_PCI_COMMON_STATUS: {
+		uint8_t old_status = vs->vs_status;
+		vs->vs_status = (uint8_t)value;
+		if (vs->vs_status == 0) {
+			(*vc->vc_reset)(DEV_SOFTC(vs));
+			vs->vs_config_gen++;
+		} else if ((vs->vs_status & VIRTIO_CONFIG_S_FEATURES_OK) != 0 &&
+		    (old_status & VIRTIO_CONFIG_S_FEATURES_OK) == 0) {
+			if (vc->vc_apply_features != NULL)
+				(*vc->vc_apply_features)(DEV_SOFTC(vs),
+				    vs->vs_negotiated_caps);
+		}
+		break;
+	}
+	case VIRTIO_PCI_COMMON_CFGGENERATION:
+		/* config_generation is read-only */
+		break;
+	case VIRTIO_PCI_COMMON_Q_SELECT:
+		vs->vs_curq = (int)(uint16_t)value;
+		break;
+	case VIRTIO_PCI_COMMON_Q_SIZE:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			if ((uint16_t)value <= vq->vq_max_qsize &&
+			    (uint16_t)value > 0)
+				vq->vq_qsize = (uint16_t)value;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_MSIX:
+		if (vs->vs_curq < vc->vc_nvq)
+			vs->vs_queues[vs->vs_curq].vq_msix_idx = (uint16_t)
+			    value;
+		break;
+	case VIRTIO_PCI_COMMON_Q_ENABLE:
+		if (vs->vs_curq >= vc->vc_nvq)
+			break;
+		vq = &vs->vs_queues[vs->vs_curq];
+		if ((uint16_t)value == 1) {
+			vq->vq_enabled = true;
+			if (vq->vq_desc_addr != 0 && vq->vq_avail_addr != 0 &&
+			    vq->vq_used_addr != 0)
+				vi_vq_init_modern(vs, vq);
+		} else {
+			vq->vq_enabled = false;
+			vq->vq_flags &= ~VQ_ALLOC;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_NOFF:
+		/* queue_notify_off is read-only */
+		break;
+	case VIRTIO_PCI_COMMON_Q_DESCLO:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			vq->vq_desc_addr = (vq->vq_desc_addr &
+					       0xFFFFFFFF00000000ULL) |
+			    (uint64_t)(uint32_t)value;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_DESCHI:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			vq->vq_desc_addr = (vq->vq_desc_addr &
+					       0x00000000FFFFFFFFULL) |
+			    ((uint64_t)(uint32_t)value << 32);
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_AVAILLO:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			vq->vq_avail_addr = (vq->vq_avail_addr &
+						0xFFFFFFFF00000000ULL) |
+			    (uint64_t)(uint32_t)value;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_AVAILHI:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			vq->vq_avail_addr = (vq->vq_avail_addr &
+						0x00000000FFFFFFFFULL) |
+			    ((uint64_t)(uint32_t)value << 32);
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_USEDLO:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			vq->vq_used_addr = (vq->vq_used_addr &
+					       0xFFFFFFFF00000000ULL) |
+			    (uint64_t)(uint32_t)value;
+		}
+		break;
+	case VIRTIO_PCI_COMMON_Q_USEDHI:
+		if (vs->vs_curq < vc->vc_nvq) {
+			vq = &vs->vs_queues[vs->vs_curq];
+			vq->vq_used_addr = (vq->vq_used_addr &
+					       0x00000000FFFFFFFFULL) |
+			    ((uint64_t)(uint32_t)value << 32);
+		}
+		break;
+	}
+}
+
+/*
+ * Read handler for the ISR region of the modern MMIO BAR.
+ * Reading clears the ISR and de-asserts the legacy interrupt line.
+ */
+static uint64_t
+vi_isr_cfg_read(struct virtio_softc *vs)
+{
+	uint64_t value = vs->vs_isr;
+
+	vs->vs_isr = 0;
+	if (value)
+		pci_lintr_deassert(vs->vs_pi);
+	return (value);
+}
+
+/*
+ * Read handler for the device-specific config region of the modern MMIO BAR.
+ * off is the byte offset within the device config (relative to VIRTIO_MODERN_DEV_CFG_OFFSET).
+ */
+static uint64_t
+vi_dev_cfg_read(struct virtio_softc *vs, uint32_t off, int size)
+{
+	struct virtio_consts *vc = vs->vs_vc;
+	uint32_t val32 = 0;
+
+	if (vc->vc_cfgread != NULL)
+		(*vc->vc_cfgread)(DEV_SOFTC(vs), off, size, &val32);
+	return (val32);
+}
+
+/*
+ * Write handler for the device-specific config region of the modern MMIO BAR.
+ * off is the byte offset within the device config (relative to VIRTIO_MODERN_DEV_CFG_OFFSET).
+ */
+static void
+vi_dev_cfg_write(struct virtio_softc *vs, uint32_t off, int size,
+    uint64_t value)
+{
+	struct virtio_consts *vc = vs->vs_vc;
+
+	if (vc->vc_cfgwrite != NULL)
+		(*vc->vc_cfgwrite)(DEV_SOFTC(vs), off, size, (uint32_t)value);
+}
+
+/*
+ * Write handler for the notify region of the modern MMIO BAR.
+ * off is the byte offset within the notify region (relative to VIRTIO_MODERN_NOTIFY_OFFSET).
+ */
+static void
+vi_notify_cfg_write(struct virtio_softc *vs, uint32_t off)
+{
+	struct virtio_consts *vc = vs->vs_vc;
+	struct vqueue_info *vq;
+	uint32_t qidx;
+
+	qidx = off / VIRTIO_MODERN_NOTIFY_MULT;
+	if (qidx < (uint32_t)vc->vc_nvq) {
+		vq = &vs->vs_queues[qidx];
+		if (vq->vq_notify != NULL)
+			(*vq->vq_notify)(DEV_SOFTC(vs), vq);
+		else if (vc->vc_qnotify != NULL)
+			(*vc->vc_qnotify)(DEV_SOFTC(vs), vq);
+	}
+}
+
+/*
+ * Read handler for the modern MMIO BAR (BAR 2).
+ */
+static uint64_t
+vi_modern_bar_read(struct virtio_softc *vs, uint64_t offset, int size)
+{
+	struct virtio_consts *vc = vs->vs_vc;
+	uint64_t value = 0;
+
+	if (offset >= VIRTIO_MODERN_COMMON_CFG_OFFSET &&
+	    offset < VIRTIO_MODERN_COMMON_CFG_OFFSET + VIRTIO_MODERN_COMMON_CFG_LEN) {
+		value = vi_common_cfg_read(vs,
+		    (uint32_t)(offset - VIRTIO_MODERN_COMMON_CFG_OFFSET));
+	} else if (offset >= VIRTIO_MODERN_ISR_CFG_OFFSET &&
+			   offset < VIRTIO_MODERN_ISR_CFG_OFFSET + VIRTIO_MODERN_ISR_CFG_LEN) {
+		value = vi_isr_cfg_read(vs);
+	} else if (vc->vc_cfgsize > 0 && offset >= VIRTIO_MODERN_DEV_CFG_OFFSET &&
+			   offset < VIRTIO_MODERN_DEV_CFG_OFFSET + vc->vc_cfgsize) {
+		value = vi_dev_cfg_read(vs,
+		    (uint32_t)(offset - VIRTIO_MODERN_DEV_CFG_OFFSET), size);
+	}
+	/* Notify region reads return 0 (write-only doorbell) */
+
+	if (size == 1)
+		value &= 0xFF;
+	else if (size == 2)
+		value &= 0xFFFF;
+	else if (size == 4)
+		value &= 0xFFFFFFFF;
+	return (value);
+}
+
+/*
+ * Write handler for the modern MMIO BAR (BAR 2).
+ */
+static void
+vi_modern_bar_write(struct virtio_softc *vs, uint64_t offset, int size,
+    uint64_t value)
+{
+	struct virtio_consts *vc = vs->vs_vc;
+
+	if (offset >= VIRTIO_MODERN_COMMON_CFG_OFFSET &&
+	    offset < VIRTIO_MODERN_COMMON_CFG_OFFSET + VIRTIO_MODERN_COMMON_CFG_LEN) {
+		vi_common_cfg_write(vs,
+		    (uint32_t)(offset - VIRTIO_MODERN_COMMON_CFG_OFFSET), value);
+	} else if (offset >= VIRTIO_MODERN_ISR_CFG_OFFSET &&
+			   offset < VIRTIO_MODERN_ISR_CFG_OFFSET + VIRTIO_MODERN_ISR_CFG_LEN) {
+		/* ISR region is read-only; writes are ignored */;
+	} else if (vc->vc_cfgsize > 0 && offset >= VIRTIO_MODERN_DEV_CFG_OFFSET &&
+			   offset < VIRTIO_MODERN_DEV_CFG_OFFSET + vc->vc_cfgsize) {
+		vi_dev_cfg_write(vs, (uint32_t)(offset - VIRTIO_MODERN_DEV_CFG_OFFSET),
+		    size, value);
+	} else if (offset >= VIRTIO_MODERN_NOTIFY_OFFSET &&
+	    offset <
+			   VIRTIO_MODERN_NOTIFY_OFFSET + (uint32_t)vc->vc_nvq * VIRTIO_MODERN_NOTIFY_MULT) {
+		vi_notify_cfg_write(vs,
+		    (uint32_t)(offset - VIRTIO_MODERN_NOTIFY_OFFSET));
+	}
 }
 
 /*
@@ -580,8 +1083,21 @@ vi_pci_read(struct pci_devinst *pi, int baridx, uint64_t offset, int size)
 		}
 	}
 
-	/* XXX probably should do something better than just assert() */
-	assert(baridx == 0);
+	/* Dispatch modern MMIO BAR reads */
+	if (baridx == VIRTIO_MODERN_BAR &&
+	    (vs->vs_flags & VIRTIO_MODERN) != 0) {
+		uint64_t val;
+		if (vs->vs_mtx)
+			pthread_mutex_lock(vs->vs_mtx);
+		val = vi_modern_bar_read(vs, offset, size);
+		if (vs->vs_mtx)
+			pthread_mutex_unlock(vs->vs_mtx);
+		return (val);
+	}
+
+	/* Legacy BAR 0 */
+	if (baridx != 0)
+		return (size == 1 ? 0xff : size == 2 ? 0xffff : 0xffffffff);
 
 	if (vs->vs_mtx)
 		pthread_mutex_lock(vs->vs_mtx);
@@ -701,8 +1217,20 @@ vi_pci_write(struct pci_devinst *pi, int baridx, uint64_t offset, int size,
 		}
 	}
 
-	/* XXX probably should do something better than just assert() */
-	assert(baridx == 0);
+	/* Dispatch modern MMIO BAR writes */
+	if (baridx == VIRTIO_MODERN_BAR &&
+	    (vs->vs_flags & VIRTIO_MODERN) != 0) {
+		if (vs->vs_mtx)
+			pthread_mutex_lock(vs->vs_mtx);
+		vi_modern_bar_write(vs, offset, size, value);
+		if (vs->vs_mtx)
+			pthread_mutex_unlock(vs->vs_mtx);
+		return;
+	}
+
+	/* Legacy BAR 0 */
+	if (baridx != 0)
+		return;
 
 	if (vs->vs_mtx)
 		pthread_mutex_lock(vs->vs_mtx);
@@ -755,7 +1283,10 @@ bad:
 
 	switch (offset) {
 	case VIRTIO_PCI_GUEST_FEATURES:
-		vs->vs_negotiated_caps = value & vc->vc_hv_caps;
+		/* Legacy: only lower 32 bits */
+		vs->vs_negotiated_caps = (vs->vs_negotiated_caps &
+					     0xFFFFFFFF00000000ULL) |
+		    ((uint64_t)(uint32_t)value & vc->vc_hv_caps);
 		if (vc->vc_apply_features)
 			(*vc->vc_apply_features)(DEV_SOFTC(vs),
 			    vs->vs_negotiated_caps);
@@ -894,7 +1425,16 @@ vi_pci_snapshot_queues(struct virtio_softc *vs, struct vm_snapshot_meta *meta)
 	for (i = 0; i < vc->vc_nvq; i++) {
 		vq = &vs->vs_queues[i];
 
-		SNAPSHOT_VAR_CMP_OR_LEAVE(vq->vq_qsize, meta, ret, done);
+		/*
+		 * For modern (virtio 1.0) devices the guest may negotiate a
+		 * queue size smaller than the device maximum, so save/restore
+		 * it rather than just comparing.
+		 */
+		if (vs->vs_flags & VIRTIO_MODERN)
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_qsize, meta, ret, done);
+		else
+			SNAPSHOT_VAR_CMP_OR_LEAVE(vq->vq_qsize, meta, ret,
+			    done);
 		SNAPSHOT_VAR_CMP_OR_LEAVE(vq->vq_num, meta, ret, done);
 
 		SNAPSHOT_VAR_OR_LEAVE(vq->vq_flags, meta, ret, done);
@@ -903,22 +1443,45 @@ vi_pci_snapshot_queues(struct virtio_softc *vs, struct vm_snapshot_meta *meta)
 		SNAPSHOT_VAR_OR_LEAVE(vq->vq_save_used, meta, ret, done);
 		SNAPSHOT_VAR_OR_LEAVE(vq->vq_msix_idx, meta, ret, done);
 
-		SNAPSHOT_VAR_OR_LEAVE(vq->vq_pfn, meta, ret, done);
+		if (vs->vs_flags & VIRTIO_MODERN) {
+			/* Modern queues use 64-bit GPA addresses and enabled
+			 * flag */
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_enabled, meta, ret, done);
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_desc_addr, meta, ret,
+			    done);
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_avail_addr, meta, ret,
+			    done);
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_used_addr, meta, ret,
+			    done);
+		} else {
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_pfn, meta, ret, done);
+		}
 
 		if (!vq_ring_ready(vq))
 			continue;
 
-		addr_size = vq->vq_qsize * sizeof(struct vring_desc);
-		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_desc, addr_size,
-			false, meta, ret, done);
+		if (vs->vs_flags & VIRTIO_MODERN) {
+			/*
+			 * Re-establish host-side ring pointers from the saved
+			 * GPA addresses on restore; on save the pointers are
+			 * already valid.
+			 */
+			if (meta->op == VM_SNAPSHOT_RESTORE)
+				vi_vq_init_modern(vs, vq);
+		} else {
+			addr_size = vq->vq_qsize * sizeof(struct vring_desc);
+			SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_desc,
+			    addr_size, false, meta, ret, done);
 
-		addr_size = (2 + vq->vq_qsize + 1) * sizeof(uint16_t);
-		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_avail, addr_size,
-			false, meta, ret, done);
+			addr_size = (2 + vq->vq_qsize + 1) * sizeof(uint16_t);
+			SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_avail,
+			    addr_size, false, meta, ret, done);
 
-		addr_size  = (2 + 2 * vq->vq_qsize + 1) * sizeof(uint16_t);
-		SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_used, addr_size,
-			false, meta, ret, done);
+			addr_size = (2 + 2 * vq->vq_qsize + 1) *
+			    sizeof(uint16_t);
+			SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_used,
+			    addr_size, false, meta, ret, done);
+		}
 
 		SNAPSHOT_BUF_OR_LEAVE(vq->vq_desc,
 			vring_size_aligned(vq->vq_qsize), meta, ret, done);

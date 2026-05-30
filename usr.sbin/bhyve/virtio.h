@@ -33,7 +33,11 @@
 
 #include <dev/virtio/virtio.h>
 #include <dev/virtio/virtio_ring.h>
+#include <dev/virtio/virtio_config.h>
 #include <dev/virtio/pci/virtio_pci_var.h>
+#include <dev/virtio/pci/virtio_pci_modern_var.h>
+
+#include <stdbool.h>
 
 /*
  * These are derived from several virtio specifications.
@@ -174,6 +178,8 @@
 /*
  * PCI revision IDs
  */
+#define VIRTIO_REV_LEGACY	0
+#define VIRTIO_REV_MODERN	1	/* transitional device, supports both */
 #define VIRTIO_REV_INPUT	1
 
 /*
@@ -185,6 +191,25 @@
  * PCI subdevice IDs
  */
 #define VIRTIO_SUBDEV_INPUT	0x1100
+
+/*
+ * Modern VirtIO MMIO BAR number and region offsets within it.
+ *
+ * BAR 0: legacy I/O
+ * BAR 1: MSI-X table (when MSI-X is enabled)
+ * BAR 2: modern MMIO (common cfg, ISR, device cfg, notify)
+ */
+#define VIRTIO_MODERN_BAR		2
+
+#define VIRTIO_MODERN_COMMON_CFG_OFFSET		0x0000
+#define VIRTIO_MODERN_COMMON_CFG_LEN		56	/* sizeof(virtio_pci_common_cfg) */
+#define VIRTIO_MODERN_ISR_CFG_OFFSET		0x0100
+#define VIRTIO_MODERN_ISR_CFG_LEN		4
+#define VIRTIO_MODERN_DEV_CFG_OFFSET		0x0200
+#define VIRTIO_MODERN_DEV_CFG_MAX_LEN		0x0800
+#define VIRTIO_MODERN_NOTIFY_OFFSET		0x1000
+#define VIRTIO_MODERN_NOTIFY_MULT		4	/* notify_off_multiplier */
+#define VIRTIO_MODERN_BAR_SIZE			0x2000	/* 8 KB total */
 
 /* From section 2.3, "Virtqueue Configuration", of the virtio specification */
 static inline int
@@ -230,18 +255,24 @@ struct vm_snapshot_meta;
 #define	VIRTIO_USE_MSIX		0x01
 #define	VIRTIO_EVENT_IDX	0x02	/* use the event-index values */
 #define	VIRTIO_BROKED		0x08	/* ??? */
+#define	VIRTIO_MODERN		0x10	/* device exposes modern MMIO BAR */
 
 struct virtio_softc {
 	struct virtio_consts *vs_vc;	/* constants (see below) */
 	int	vs_flags;		/* VIRTIO_* flags from above */
 	pthread_mutex_t *vs_mtx;	/* POSIX mutex, if any */
 	struct pci_devinst *vs_pi;	/* PCI device instance */
-	uint32_t vs_negotiated_caps;	/* negotiated capabilities */
+	uint64_t vs_negotiated_caps;	/* negotiated capabilities (64-bit) */
 	struct vqueue_info *vs_queues;	/* one per vc_nvq */
 	int	vs_curq;		/* current queue */
 	uint8_t	vs_status;		/* value from last status write */
 	uint8_t	vs_isr;			/* ISR flags, if not MSI-X */
 	uint16_t vs_msix_cfg_idx;	/* MSI-X vector for config event */
+
+	/* Modern VirtIO 1.0 fields */
+	uint32_t vs_dev_feature_sel;	/* device_feature_select (0 or 1) */
+	uint32_t vs_drv_feature_sel;	/* driver_feature_select (0 or 1) */
+	uint8_t	vs_config_gen;		/* config_generation counter */
 };
 
 #define	VS_LOCK(vs)							\
@@ -293,10 +324,11 @@ struct virtio_consts {
  * (but more easily) computable, and this time we'll compute them:
  * they're just XX_ring[N].
  */
-#define	VQ_ALLOC	0x01	/* set once we have a pfn */
+#define	VQ_ALLOC	0x01	/* set once we have a pfn or modern addrs */
 #define	VQ_BROKED	0x02	/* ??? */
 struct vqueue_info {
 	uint16_t vq_qsize;	/* size of this queue (a power of 2) */
+	uint16_t vq_max_qsize;	/* device max queue size (modern: driver may reduce) */
 	void	(*vq_notify)(void *, struct vqueue_info *);
 				/* called instead of vc_notify, if not NULL */
 
@@ -304,12 +336,18 @@ struct vqueue_info {
 	uint16_t vq_num;	/* we're the num'th queue in the softc */
 
 	uint16_t vq_flags;	/* flags (see above) */
+	bool	 vq_enabled;	/* modern: queue has been enabled by driver */
 	uint16_t vq_last_avail;	/* a recent value of vq_avail->idx */
 	uint16_t vq_next_used;	/* index of the next used slot to be filled */
 	uint16_t vq_save_used;	/* saved vq_used->idx; see vq_endchains */
 	uint16_t vq_msix_idx;	/* MSI-X index, or VIRTIO_MSI_NO_VECTOR */
 
-	uint32_t vq_pfn;	/* PFN of virt queue (not shifted!) */
+	uint32_t vq_pfn;	/* legacy: PFN of virt queue (not shifted!) */
+
+	/* Modern: split virtqueue 64-bit guest-physical addresses */
+	uint64_t vq_desc_addr;	/* descriptor table GPA */
+	uint64_t vq_avail_addr;	/* available ring GPA */
+	uint64_t vq_used_addr;	/* used ring GPA */
 
 	struct vring_desc *vq_desc;	/* descriptor array */
 	struct vring_avail *vq_avail;	/* the "avail" ring */
@@ -413,6 +451,8 @@ void	vi_softc_linkup(struct virtio_softc *vs, struct virtio_consts *vc,
 int	vi_intr_init(struct virtio_softc *vs, int barnum, int use_msix);
 void	vi_reset_dev(struct virtio_softc *);
 void	vi_set_io_bar(struct virtio_softc *, int);
+int	vi_set_modern_bar(struct virtio_softc *vs, bool allow_device_cfg);
+void	vi_config_changed(struct virtio_softc *vs);
 
 int	vq_getchain(struct vqueue_info *vq, struct iovec *iov, int niov,
 	    struct vi_req *reqp);
