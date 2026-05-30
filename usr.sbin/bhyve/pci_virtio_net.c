@@ -69,7 +69,8 @@
 
 #define VTNET_S_HOSTCAPS      \
   ( VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS | \
-    VIRTIO_F_NOTIFY_ON_EMPTY | VIRTIO_RING_F_INDIRECT_DESC)
+    VIRTIO_F_NOTIFY_ON_EMPTY | VIRTIO_RING_F_INDIRECT_DESC | \
+    VIRTIO_F_VERSION_1)
 
 /*
  * PCI config-space "registers"
@@ -649,6 +650,12 @@ pci_vtnet_init(struct pci_devinst *pi, nvlist_t *nvl)
 
 	/* use BAR 0 to map config regs in IO space */
 	vi_set_io_bar(&sc->vsc_vs, 0);
+
+	/* use BAR 2 to expose modern VirtIO MMIO capabilities */
+	if (vi_set_modern_bar(&sc->vsc_vs, true) != 0) {
+		free(sc);
+		return (1);
+	}
 
 	sc->resetting = 0;
 

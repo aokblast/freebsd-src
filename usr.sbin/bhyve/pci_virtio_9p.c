@@ -109,7 +109,7 @@ static struct virtio_consts vt9p_vi_consts = {
 	.vc_qnotify =	pci_vt9p_notify,
 	.vc_cfgread =	pci_vt9p_cfgread,
 	.vc_apply_features = pci_vt9p_neg_features,
-	.vc_hv_caps =	(1 << 0),
+	.vc_hv_caps =	(1 << 0) | VIRTIO_F_VERSION_1,
 };
 
 static void
@@ -334,6 +334,8 @@ pci_vt9p_init(struct pci_devinst *pi, nvlist_t *nvl)
 	if (vi_intr_init(&sc->vsc_vs, 1, fbsdrun_virtio_msix()))
 		return (1);
 	vi_set_io_bar(&sc->vsc_vs, 0);
+	if (vi_set_modern_bar(&sc->vsc_vs, true) != 0)
+		return (1);
 
 	return (0);
 }

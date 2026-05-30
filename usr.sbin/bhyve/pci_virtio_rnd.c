@@ -86,7 +86,7 @@ static struct virtio_consts vtrnd_vi_consts = {
 	.vc_cfgsize =	0,
 	.vc_reset =	pci_vtrnd_reset,
 	.vc_qnotify =	pci_vtrnd_notify,
-	.vc_hv_caps =	0,
+	.vc_hv_caps =	VIRTIO_F_VERSION_1,
 };
 
 static void
@@ -192,6 +192,8 @@ pci_vtrnd_init(struct pci_devinst *pi, nvlist_t *nvl __unused)
 	if (vi_intr_init(&sc->vrsc_vs, 1, fbsdrun_virtio_msix()))
 		return (1);
 	vi_set_io_bar(&sc->vrsc_vs, 0);
+	if (vi_set_modern_bar(&sc->vrsc_vs, false) != 0)
+		return (1);
 
 	return (0);
 }

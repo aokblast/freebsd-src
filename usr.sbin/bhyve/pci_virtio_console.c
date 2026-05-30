@@ -80,8 +80,9 @@
 #define	VTCON_F_SIZE		0
 #define	VTCON_F_MULTIPORT	1
 #define	VTCON_F_EMERG_WRITE	2
-#define	VTCON_S_HOSTCAPS	\
-    (VTCON_F_SIZE | VTCON_F_MULTIPORT | VTCON_F_EMERG_WRITE)
+#define VTCON_S_HOSTCAPS                                          \
+	(VTCON_F_SIZE | VTCON_F_MULTIPORT | VTCON_F_EMERG_WRITE | \
+	    VIRTIO_F_VERSION_1)
 
 static int pci_vtcon_debug;
 #define DPRINTF(params) if (pci_vtcon_debug) PRINTLN params
@@ -722,6 +723,8 @@ pci_vtcon_init(struct pci_devinst *pi, nvlist_t *nvl)
 	if (vi_intr_init(&sc->vsc_vs, 1, fbsdrun_virtio_msix()))
 		return (1);
 	vi_set_io_bar(&sc->vsc_vs, 0);
+	if (vi_set_modern_bar(&sc->vsc_vs, true) != 0)
+		return (1);
 
 	/* create control port */
 	sc->vsc_control_port.vsp_sc = sc;

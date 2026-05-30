@@ -90,7 +90,8 @@ _Static_assert(VTBLK_RINGSZ <= BLOCKIF_RING_MAX, "Each ring entry must be able t
     VTBLK_F_BLK_SIZE |						    \
     VTBLK_F_FLUSH    |						    \
     VTBLK_F_TOPOLOGY |						    \
-    VIRTIO_RING_F_INDIRECT_DESC )	/* indirect descriptors */
+    VIRTIO_RING_F_INDIRECT_DESC |	/* indirect descriptors */	    \
+    VIRTIO_F_VERSION_1 )
 
 /*
  * The current blockif_delete() interface only allows a single delete
@@ -440,8 +441,7 @@ pci_vtblk_resized(struct blockif_ctxt *bctxt __unused, void *arg,
 	sc = arg;
 
 	sc->vbsc_cfg.vbc_capacity = new_size / VTBLK_BSIZE; /* 512-byte units */
-	vi_interrupt(&sc->vbsc_vs, VIRTIO_PCI_ISR_CONFIG,
-	    sc->vbsc_vs.vs_msix_cfg_idx);
+	vi_config_changed(&sc->vbsc_vs);
 }
 
 static int
@@ -561,6 +561,11 @@ pci_vtblk_init(struct pci_devinst *pi, nvlist_t *nvl)
 		return (1);
 	}
 	vi_set_io_bar(&sc->vbsc_vs, 0);
+	if (vi_set_modern_bar(&sc->vbsc_vs, true) != 0) {
+		blockif_close(sc->bc);
+		free(sc);
+		return (1);
+	}
 	blockif_register_resize_callback(sc->bc, pci_vtblk_resized, sc);
 	return (0);
 }

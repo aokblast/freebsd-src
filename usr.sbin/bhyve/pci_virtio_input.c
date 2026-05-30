@@ -162,7 +162,7 @@ static struct virtio_consts vtinput_vi_consts = {
 	.vc_reset =	pci_vtinput_reset,
 	.vc_cfgread =	pci_vtinput_cfgread,
 	.vc_cfgwrite =	pci_vtinput_cfgwrite,
-	.vc_hv_caps =	0,
+	.vc_hv_caps =	VIRTIO_F_VERSION_1,
 };
 
 static void
@@ -740,6 +740,9 @@ pci_vtinput_init(struct pci_devinst *pi, nvlist_t *nvl)
 		goto failed;
 	/* add virtio register */
 	vi_set_io_bar(&sc->vsc_vs, 0);
+	/* add modern MMIO BAR */
+	if (vi_set_modern_bar(&sc->vsc_vs, true) != 0)
+		goto failed;
 
 	return (0);
 

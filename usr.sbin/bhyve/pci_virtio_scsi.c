@@ -311,7 +311,7 @@ static struct virtio_consts vtscsi_vi_consts = {
 	.vc_cfgread =	pci_vtscsi_cfgread,
 	.vc_cfgwrite =	pci_vtscsi_cfgwrite,
 	.vc_apply_features = pci_vtscsi_neg_features,
-	.vc_hv_caps =	VIRTIO_RING_F_INDIRECT_DESC,
+	.vc_hv_caps =	VIRTIO_RING_F_INDIRECT_DESC | VIRTIO_F_VERSION_1,
 };
 
 static void *
@@ -1105,6 +1105,9 @@ pci_vtscsi_init(struct pci_devinst *pi, nvlist_t *nvl)
 		goto fail;
 
 	vi_set_io_bar(&sc->vss_vs, 0);
+
+	if (vi_set_modern_bar(&sc->vss_vs, true) != 0)
+		goto fail;
 
 	return (0);
 
