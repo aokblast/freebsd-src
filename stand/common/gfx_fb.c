@@ -943,10 +943,15 @@ gfxfb_blt(void *BltBuffer, GFXFB_BLT_OPERATION BltOperation,
 	 * Reads (VideoToBltBuffer) are intentionally NOT redirected to shadow:
 	 * the shadow only contains pixels that have been explicitly written
 	 * through it, so unwritten regions (e.g. firmware content already on
-	 * screen at boot) would return stale or uninitialised data.  Let reads
-	 * fall through to the backend-specific path below so they always come
-	 * from the authoritative video source.
+	 * screen at boot) would return stale or uninitialised data.  Instead,
+	 * flush any pending shadow writes to video first so the
+	 * backend-specific read below always sees the current framebuffer
+	 * contents.
 	 */
+	if (gfx_state.tg_shadow_fb != NULL &&
+	    BltOperation == GfxFbBltVideoToBltBuffer)
+		gfx_fb_flush();
+
 	if (gfx_state.tg_shadow_fb != NULL &&
 	    BltOperation != GfxFbBltVideoToBltBuffer) {
 		switch (BltOperation) {
