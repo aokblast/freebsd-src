@@ -40,6 +40,43 @@
 /* This means the buffer contains a list of buffer descriptors. */
 #define VRING_DESC_F_INDIRECT	4
 
+/*
+ * Packed virtqueue descriptor flags (VIRTIO_F_RING_PACKED).
+ *
+ * AVAIL and USED are the ownership bits used in place of the separate
+ * avail/used rings from split virtqueues:
+ *
+ *   Driver makes descriptor available:  AVAIL = driver_wrap, USED = !driver_wrap
+ *   Device marks descriptor as used:    AVAIL = USED = device_wrap
+ *
+ * A descriptor is available when (AVAIL != USED).
+ */
+#define VRING_PACKED_DESC_F_AVAIL	(1 << 7)
+#define VRING_PACKED_DESC_F_USED	(1 << 15)
+
+/* Packed virtqueue descriptor (16 bytes, same size as split). */
+struct vring_packed_desc {
+	uint64_t addr;		/* buffer address (guest-physical) */
+	uint32_t len;		/* buffer length */
+	uint16_t id;		/* buffer id (chain head identifier) */
+	uint16_t flags;		/* VRING_DESC_F_* | VRING_PACKED_DESC_F_* */
+};
+
+/*
+ * Packed virtqueue event suppression structure.
+ * Two of these follow the descriptor ring in guest memory:
+ *   offset [qsize * 16 + 0]: device event (written by device, read by driver)
+ *   offset [qsize * 16 + 4]: driver event (written by driver, read by device)
+ */
+struct vring_packed_desc_event {
+	uint16_t off_wrap;	/* descriptor index and ring wrap counter */
+	uint16_t flags;		/* VRING_PACKED_EVENT_FLAG_* */
+};
+
+#define VRING_PACKED_EVENT_FLAG_ENABLE		0	/* always interrupt */
+#define VRING_PACKED_EVENT_FLAG_DISABLE		1	/* never interrupt */
+#define VRING_PACKED_EVENT_FLAG_DESC		2	/* interrupt at descriptor */
+
 /* The Host uses this in used->flags to advise the Guest: don't kick me
  * when you add a buffer.  It's unreliable, so it's simply an
  * optimization.  Guest will still kick if it's out of buffers. */

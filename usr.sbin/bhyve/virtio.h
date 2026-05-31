@@ -349,10 +349,26 @@ struct vqueue_info {
 	uint64_t vq_avail_addr;	/* available ring GPA */
 	uint64_t vq_used_addr;	/* used ring GPA */
 
-	struct vring_desc *vq_desc;	/* descriptor array */
-	struct vring_avail *vq_avail;	/* the "avail" ring */
-	struct vring_used *vq_used;	/* the "used" ring */
+	struct vring_desc *vq_desc;	/* split: descriptor array */
+	struct vring_avail *vq_avail;	/* split: the "avail" ring */
+	struct vring_used *vq_used;	/* split: the "used" ring */
 
+	/*
+	 * Packed virtqueue state (VIRTIO_F_RING_PACKED).
+	 *
+	 * The single packed ring lives at vq_desc_addr; vq_avail_addr and
+	 * vq_used_addr are unused.  Wrap counters begin at 1 and toggle
+	 * each time the ring index wraps from (qsize-1) back to 0.
+	 *
+	 *   vq_last_avail  -- ring index of the next descriptor to consume
+	 *   vq_next_used   -- ring index of the chain head being returned
+	 *                     (set by vq_relchain_prepare, used by _publish)
+	 *   vq_save_used   -- previous vq_next_used, for interrupt decisions
+	 */
+	bool	 vq_packed;		/* true: packed ring format in use */
+	uint8_t  vq_avail_wrap;	/* device's copy of driver ring wrap counter */
+	uint8_t  vq_used_wrap;		/* device ring wrap counter */
+	struct vring_packed_desc *vq_packed_desc; /* packed ring host pointer */
 };
 /* as noted above, these are sort of backwards, name-wise */
 #define VQ_AVAIL_EVENT_IDX(vq) \
@@ -377,9 +393,19 @@ vq_ring_ready(struct vqueue_info *vq)
 static inline int
 vq_has_descs(struct vqueue_info *vq)
 {
+	uint16_t flags;
 
-	return (vq_ring_ready(vq) && vq->vq_last_avail !=
-	    vq->vq_avail->idx);
+	if (!vq_ring_ready(vq))
+		return (0);
+	if (vq->vq_packed) {
+		/*
+		 * A packed descriptor is available when AVAIL==avail_wrap
+		 * and USED!=avail_wrap, which simplifies to AVAIL!=USED.
+		 */
+		flags = vq->vq_packed_desc[vq->vq_last_avail].flags;
+		return (((flags >> 7) & 1) != ((flags >> 15) & 1));
+	}
+	return (vq->vq_last_avail != vq->vq_avail->idx);
 }
 
 /*
@@ -416,11 +442,13 @@ static inline void
 vq_kick_enable(struct vqueue_info *vq)
 {
 
-	vq->vq_used->flags &= ~VRING_USED_F_NO_NOTIFY;
+	if (!vq->vq_packed)
+		vq->vq_used->flags &= ~VRING_USED_F_NO_NOTIFY;
 	/*
 	 * Full memory barrier to make sure the store to vq_used->flags
-	 * happens before the load from vq_avail->idx, which results from a
-	 * subsequent call to vq_has_descs().
+	 * (split) or the packed ring (packed) happens before the load from
+	 * vq_avail->idx / packed flags, which results from a subsequent
+	 * call to vq_has_descs().
 	 */
 	atomic_thread_fence_seq_cst();
 }
@@ -429,7 +457,8 @@ static inline void
 vq_kick_disable(struct vqueue_info *vq)
 {
 
-	vq->vq_used->flags |= VRING_USED_F_NO_NOTIFY;
+	if (!vq->vq_packed)
+		vq->vq_used->flags |= VRING_USED_F_NO_NOTIFY;
 }
 
 struct iovec;

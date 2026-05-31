@@ -78,11 +78,21 @@
 #define VIRTIO_F_IOMMU_PLATFORM		(1ULL << 33)
 
 /*
+ * VIRTIO_F_RING_PACKED (bit 34): when negotiated, the device and driver
+ * use a packed virtqueue instead of the split layout.  A packed ring
+ * combines the descriptor table, available ring, and used ring into a
+ * single array of struct vring_packed_desc, with ownership indicated by
+ * the VRING_PACKED_DESC_F_AVAIL and VRING_PACKED_DESC_F_USED flag bits
+ * rather than separate ring indices.
+ */
+#define VIRTIO_F_RING_PACKED		(1ULL << 34)
+
+/*
  * Some VirtIO feature bits (currently bits 28 through 34) are
  * reserved for the transport being used (eg. virtio_ring), the
  * rest are per-device feature bits.
  */
 #define VIRTIO_TRANSPORT_F_START	28
-#define VIRTIO_TRANSPORT_F_END		34
+#define VIRTIO_TRANSPORT_F_END		35
 
 #endif /* _VIRTIO_CONFIG_H_ */

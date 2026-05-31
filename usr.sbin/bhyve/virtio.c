@@ -77,7 +77,7 @@ vi_hv_caps(const struct virtio_softc *vs)
 	uint64_t caps = vs->vs_vc->vc_hv_caps;
 
 	if (caps & VIRTIO_F_VERSION_1)
-		caps |= VIRTIO_F_IOMMU_PLATFORM;
+		caps |= VIRTIO_F_IOMMU_PLATFORM | VIRTIO_F_RING_PACKED;
 	return (caps);
 }
 
@@ -136,6 +136,10 @@ vi_reset_dev(struct virtio_softc *vs)
 		vq->vq_avail_addr = 0;
 		vq->vq_used_addr = 0;
 		vq->vq_msix_idx = VIRTIO_MSI_NO_VECTOR;
+		vq->vq_packed = false;
+		vq->vq_avail_wrap = 0;
+		vq->vq_used_wrap = 0;
+		vq->vq_packed_desc = NULL;
 		/* Restore queue size to device maximum */
 		if (vq->vq_max_qsize != 0)
 			vq->vq_qsize = vq->vq_max_qsize;
@@ -254,6 +258,13 @@ vi_set_modern_bar(struct virtio_softc *vs, bool allow_device_cfg)
 /*
  * Initialize a virtqueue from 64-bit modern addresses (called when the
  * driver sets queue_enable = 1 in common_cfg).
+ *
+ * For split virtqueues, maps the three ring regions.
+ * For packed virtqueues (VIRTIO_F_RING_PACKED), maps the single descriptor
+ * ring plus the two trailing event-suppression structures.
+ *
+ * Ring position counters (vq_last_avail, vq_next_used, vq_save_used) are
+ * NOT reset here; they are managed by vi_reset_dev() and snapshot restore.
  */
 static void
 vi_vq_init_modern(struct virtio_softc *vs, struct vqueue_info *vq)
@@ -261,18 +272,40 @@ vi_vq_init_modern(struct virtio_softc *vs, struct vqueue_info *vq)
 	struct vmctx *ctx = vs->vs_pi->pi_vmctx;
 	size_t desc_size, avail_size, used_size;
 
-	desc_size = (size_t)vq->vq_qsize * sizeof(struct vring_desc);
-	avail_size = (2 + (size_t)vq->vq_qsize + 1) * sizeof(uint16_t);
-	used_size = (2 + 2 * (size_t)vq->vq_qsize + 1) * sizeof(uint16_t);
+	if (vs->vs_negotiated_caps & VIRTIO_F_RING_PACKED) {
+		/*
+		 * Packed ring: a single array of vring_packed_desc followed
+		 * by two vring_packed_desc_event structures (device event,
+		 * then driver event).
+		 */
+		size_t ring_size = (size_t)vq->vq_qsize *
+		    sizeof(struct vring_packed_desc) +
+		    2 * sizeof(struct vring_packed_desc_event);
 
-	vq->vq_desc = paddr_guest2host(ctx, vq->vq_desc_addr, desc_size);
-	vq->vq_avail = paddr_guest2host(ctx, vq->vq_avail_addr, avail_size);
-	vq->vq_used = paddr_guest2host(ctx, vq->vq_used_addr, used_size);
+		vq->vq_packed = true;
+		vq->vq_avail_wrap = 1;
+		vq->vq_used_wrap = 1;
+		vq->vq_packed_desc = paddr_guest2host(ctx,
+		    vq->vq_desc_addr, ring_size);
+		vq->vq_desc = NULL;
+		vq->vq_avail = NULL;
+		vq->vq_used = NULL;
+	} else {
+		desc_size = (size_t)vq->vq_qsize * sizeof(struct vring_desc);
+		avail_size = (2 + (size_t)vq->vq_qsize + 1) * sizeof(uint16_t);
+		used_size = (2 + 2 * (size_t)vq->vq_qsize + 1) *
+		    sizeof(uint16_t);
+
+		vq->vq_packed = false;
+		vq->vq_desc = paddr_guest2host(ctx, vq->vq_desc_addr,
+		    desc_size);
+		vq->vq_avail = paddr_guest2host(ctx, vq->vq_avail_addr,
+		    avail_size);
+		vq->vq_used = paddr_guest2host(ctx, vq->vq_used_addr,
+		    used_size);
+	}
 
 	vq->vq_flags = VQ_ALLOC;
-	vq->vq_last_avail = 0;
-	vq->vq_next_used = 0;
-	vq->vq_save_used = 0;
 }
 
 /*
@@ -470,9 +503,18 @@ vi_common_cfg_write(struct virtio_softc *vs, uint32_t off, uint64_t value)
 		vq = &vs->vs_queues[vs->vs_curq];
 		if ((uint16_t)value == 1) {
 			vq->vq_enabled = true;
-			if (vq->vq_desc_addr != 0 && vq->vq_avail_addr != 0 &&
-			    vq->vq_used_addr != 0)
+			/*
+			 * Packed queues use only desc_addr (the single ring);
+			 * split queues require all three region addresses.
+			 */
+			if (vs->vs_negotiated_caps & VIRTIO_F_RING_PACKED) {
+				if (vq->vq_desc_addr != 0)
+					vi_vq_init_modern(vs, vq);
+			} else if (vq->vq_desc_addr != 0 &&
+			    vq->vq_avail_addr != 0 &&
+			    vq->vq_used_addr != 0) {
 				vi_vq_init_modern(vs, vq);
+			}
 		} else {
 			vq->vq_enabled = false;
 			vq->vq_flags &= ~VQ_ALLOC;
@@ -754,6 +796,142 @@ _vq_record(int i, struct vring_desc *vd, struct vmctx *ctx, struct iovec *iov,
 #define	VQ_MAX_DESCRIPTORS	512	/* see below */
 
 /*
+ * Helper inline for vq_getchain_packed(): record the i'th packed descriptor.
+ * Packed descriptors have id/flags swapped relative to split, so a separate
+ * helper is needed.
+ */
+static inline void
+_vq_record_packed(int i, struct vring_packed_desc *vd, struct vmctx *ctx,
+    struct iovec *iov, int n_iov, struct vi_req *reqp)
+{
+	uint32_t len;
+	uint64_t addr;
+
+	if (i >= n_iov)
+		return;
+	len = atomic_load_32(&vd->len);
+	addr = atomic_load_64(&vd->addr);
+	iov[i].iov_len = len;
+	iov[i].iov_base = paddr_guest2host(ctx, addr, len);
+	if ((vd->flags & VRING_DESC_F_WRITE) == 0)
+		reqp->readable++;
+	else
+		reqp->writable++;
+}
+
+/*
+ * Packed-virtqueue variant of vq_getchain().
+ *
+ * Walks the chain of packed descriptors starting at vq->vq_last_avail,
+ * advancing vq_last_avail (and toggling vq_avail_wrap on wrap) for each
+ * descriptor consumed.  req.idx is set to the ring index of the chain head
+ * for use by vq_relchain_prepare().
+ *
+ * Indirect descriptors use the split-ring layout (per spec).
+ */
+static int
+vq_getchain_packed(struct vqueue_info *vq, struct iovec *iov, int niov,
+    struct vi_req *reqp)
+{
+	struct virtio_softc *vs;
+	struct vmctx *ctx;
+	const char *name;
+	struct vring_packed_desc *pd;
+	struct vring_desc *vindir, *vp;
+	struct vi_req req;
+	uint16_t flags, head;
+	u_int n_indir, next_indir;
+	int i;
+
+	vs = vq->vq_vs;
+	ctx = vs->vs_pi->pi_vmctx;
+	name = vs->vs_vc->vc_name;
+	memset(&req, 0, sizeof(req));
+
+	head = vq->vq_last_avail;
+	pd = &vq->vq_packed_desc[head];
+	flags = atomic_load_acq_16(&pd->flags);
+
+	/* Descriptor is available when AVAIL==avail_wrap AND USED!=avail_wrap */
+	if (((flags >> 7) & 1) != vq->vq_avail_wrap ||
+	    ((flags >> 15) & 1) == vq->vq_avail_wrap)
+		return (0);
+
+	req.idx = head;
+	i = 0;
+
+	for (;;) {
+		if (i >= VQ_MAX_DESCRIPTORS) {
+			EPRINTLN("%s: packed chain too long (>= %d), "
+			    "driver confused?", name, VQ_MAX_DESCRIPTORS);
+			return (-1);
+		}
+
+		pd = &vq->vq_packed_desc[vq->vq_last_avail];
+		flags = atomic_load_acq_16(&pd->flags);
+
+		if (flags & VRING_DESC_F_INDIRECT) {
+			uint32_t ilen = atomic_load_32(&pd->len);
+			uint64_t iaddr = atomic_load_64(&pd->addr);
+
+			n_indir = ilen / sizeof(struct vring_desc);
+			if ((ilen & (sizeof(struct vring_desc) - 1)) ||
+			    n_indir == 0) {
+				EPRINTLN("%s: packed indirect invalid len 0x%x, "
+				    "driver confused?", name, ilen);
+				return (-1);
+			}
+			if ((vs->vs_negotiated_caps &
+			    VIRTIO_RING_F_INDIRECT_DESC) == 0) {
+				EPRINTLN("%s: packed descriptor has forbidden "
+				    "INDIRECT flag, driver confused?", name);
+				return (-1);
+			}
+			vindir = paddr_guest2host(ctx, iaddr, ilen);
+			next_indir = 0;
+			for (;;) {
+				vp = &vindir[next_indir];
+				if (vp->flags & VRING_DESC_F_INDIRECT) {
+					EPRINTLN("%s: indirect desc has INDIRECT "
+					    "flag, driver confused?", name);
+					return (-1);
+				}
+				_vq_record(i, vp, ctx, iov, niov, &req);
+				if (++i > VQ_MAX_DESCRIPTORS) {
+					EPRINTLN("%s: packed chain too long "
+					    "(indirect), driver confused?",
+					    name);
+					return (-1);
+				}
+				if (!(vp->flags & VRING_DESC_F_NEXT))
+					break;
+				next_indir = vp->next;
+				if (next_indir >= n_indir) {
+					EPRINTLN("%s: indirect index out of "
+					    "range, driver confused?", name);
+					return (-1);
+				}
+			}
+		} else {
+			_vq_record_packed(i, pd, ctx, iov, niov, &req);
+			i++;
+		}
+
+		/* Advance ring position; toggle wrap counter on wrap. */
+		if (++vq->vq_last_avail >= vq->vq_qsize) {
+			vq->vq_last_avail = 0;
+			vq->vq_avail_wrap ^= 1;
+		}
+
+		if (!(flags & VRING_DESC_F_NEXT))
+			break;
+	}
+
+	*reqp = req;
+	return (i);
+}
+
+/*
  * Examine the chain of descriptors starting at the "next one" to
  * make sure that they describe a sensible request.  If so, return
  * the number of "real" descriptors that would be needed/used in
@@ -803,6 +981,10 @@ vq_getchain(struct vqueue_info *vq, struct iovec *iov, int niov,
 	vs = vq->vq_vs;
 	name = vs->vs_vc->vc_name;
 	memset(&req, 0, sizeof(req));
+
+	/* Packed virtqueues use a completely different ring layout. */
+	if (vq->vq_packed)
+		return (vq_getchain_packed(vq, iov, niov, reqp));
 
 	/*
 	 * Note: it's the responsibility of the guest not to
@@ -927,6 +1109,16 @@ void
 vq_retchains(struct vqueue_info *vq, uint16_t n_chains)
 {
 
+	/*
+	 * Packed queues cannot safely rewind vq_last_avail: the wrap counter
+	 * would also need to be reversed, which requires knowing the original
+	 * chain lengths.  This path is only reached on error; warn and leak.
+	 */
+	if (vq->vq_packed) {
+		EPRINTLN("%s: vq_retchains not supported for packed queues",
+		    vq->vq_vs->vs_vc->vc_name);
+		return;
+	}
 	vq->vq_last_avail -= n_chains;
 }
 
@@ -935,10 +1127,25 @@ vq_relchain_prepare(struct vqueue_info *vq, uint16_t idx, uint32_t iolen)
 {
 	struct vring_used *vuh;
 	struct vring_used_elem *vue;
+	struct vring_packed_desc *pd;
 	uint16_t mask;
 
+	if (vq->vq_packed) {
+		/*
+		 * For packed queues, write len to the chain-head descriptor.
+		 * The id field already has the correct value from the driver.
+		 * The flags (which transfer ownership back to the driver) are
+		 * written by vq_relchain_publish() with a release barrier.
+		 * vq_next_used saves idx so publish() can find the descriptor.
+		 */
+		pd = &vq->vq_packed_desc[idx];
+		pd->len = iolen;
+		vq->vq_next_used = idx;
+		return;
+	}
+
 	/*
-	 * Notes:
+	 * Split queue:
 	 *  - mask is N-1 where N is a power of 2 so computes x % N
 	 *  - vuh points to the "used" data shared with guest
 	 *  - vue points to the "used" ring entry we want to update
@@ -954,10 +1161,41 @@ vq_relchain_prepare(struct vqueue_info *vq, uint16_t idx, uint32_t iolen)
 void
 vq_relchain_publish(struct vqueue_info *vq)
 {
+	struct vring_packed_desc *pd;
+	uint16_t head, used_flags;
+
+	if (vq->vq_packed) {
+		/*
+		 * Packed queue: publish the used descriptor by writing the
+		 * ownership flags with a release barrier so the guest sees
+		 * the id/len writes from vq_relchain_prepare() first.
+		 *
+		 * Ownership transfer: AVAIL = USED = vq_used_wrap.
+		 *
+		 * After publishing, advance vq_next_used to vq_last_avail
+		 * (the position after the chain) and flip vq_used_wrap if
+		 * the ring wrapped during this chain.
+		 */
+		head = vq->vq_next_used;
+		pd = &vq->vq_packed_desc[head];
+
+		used_flags = vq->vq_used_wrap ?
+		    (VRING_PACKED_DESC_F_AVAIL | VRING_PACKED_DESC_F_USED) : 0;
+
+		atomic_thread_fence_rel();
+		atomic_store_16(&pd->flags, used_flags);
+
+		/* Flip device wrap counter if the chain crossed position 0. */
+		if (vq->vq_last_avail <= head)
+			vq->vq_used_wrap ^= 1;
+		vq->vq_next_used = vq->vq_last_avail;
+		return;
+	}
+
 	/*
-	 * Ensure the used descriptor is visible before updating the index.
-	 * This is necessary on ISAs with memory ordering less strict than x86
-	 * (and even on x86 to act as a compiler barrier).
+	 * Split queue: ensure the used descriptor is visible before updating
+	 * the index.  This is necessary on ISAs with memory ordering less
+	 * strict than x86 (and even on x86 to act as a compiler barrier).
 	 */
 	atomic_thread_fence_rel();
 	vq->vq_used->idx = vq->vq_next_used;
@@ -1009,6 +1247,36 @@ vq_endchains(struct vqueue_info *vq, int used_all_avail)
 	 * entire avail was processed, we need to interrupt always.
 	 */
 	vs = vq->vq_vs;
+
+	if (vq->vq_packed) {
+		/*
+		 * Packed queue interrupt decision.
+		 *
+		 * Read the driver event suppression structure that sits
+		 * immediately after the device event suppression structure
+		 * (i.e., at byte offset qsize*16 + 4 from the ring start).
+		 * If the driver has set DISABLE, suppress the interrupt.
+		 * Otherwise always deliver one if we produced anything.
+		 */
+		struct vring_packed_desc_event *drv_evt;
+		uint16_t cur_used;
+
+		drv_evt = (struct vring_packed_desc_event *)
+		    ((uint8_t *)vq->vq_packed_desc +
+		    (size_t)vq->vq_qsize * sizeof(struct vring_packed_desc) +
+		    sizeof(struct vring_packed_desc_event));
+
+		cur_used = vq->vq_next_used;
+		atomic_thread_fence_seq_cst();
+
+		if (cur_used != vq->vq_save_used || used_all_avail) {
+			vq->vq_save_used = cur_used;
+			if (drv_evt->flags != VRING_PACKED_EVENT_FLAG_DISABLE)
+				vq_interrupt(vs, vq);
+		}
+		return;
+	}
+
 	old_idx = vq->vq_save_used;
 	vq->vq_save_used = new_idx = vq->vq_used->idx;
 
@@ -1483,9 +1751,19 @@ vi_pci_snapshot_queues(struct virtio_softc *vs, struct vm_snapshot_meta *meta)
 			 * Re-establish host-side ring pointers from the saved
 			 * GPA addresses on restore; on save the pointers are
 			 * already valid.
+			 *
+			 * vi_vq_init_modern() also sets vq_avail_wrap and
+			 * vq_used_wrap to 1 (initial state), so save/restore
+			 * them AFTER the call so the snapshot values win.
 			 */
 			if (meta->op == VM_SNAPSHOT_RESTORE)
 				vi_vq_init_modern(vs, vq);
+
+			/* Packed-queue wrap counters (no-ops for split). */
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_avail_wrap, meta, ret,
+			    done);
+			SNAPSHOT_VAR_OR_LEAVE(vq->vq_used_wrap, meta, ret,
+			    done);
 		} else {
 			addr_size = vq->vq_qsize * sizeof(struct vring_desc);
 			SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_desc,
@@ -1501,8 +1779,15 @@ vi_pci_snapshot_queues(struct virtio_softc *vs, struct vm_snapshot_meta *meta)
 			    addr_size, false, meta, ret, done);
 		}
 
-		SNAPSHOT_BUF_OR_LEAVE(vq->vq_desc,
-			vring_size_aligned(vq->vq_qsize), meta, ret, done);
+		if (vq->vq_packed) {
+			SNAPSHOT_BUF_OR_LEAVE(vq->vq_packed_desc,
+			    (size_t)vq->vq_qsize *
+			    sizeof(struct vring_packed_desc),
+			    meta, ret, done);
+		} else {
+			SNAPSHOT_BUF_OR_LEAVE(vq->vq_desc,
+			    vring_size_aligned(vq->vq_qsize), meta, ret, done);
+		}
 	}
 
 done:
