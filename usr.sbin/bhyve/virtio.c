@@ -1748,16 +1748,24 @@ vi_pci_snapshot_queues(struct virtio_softc *vs, struct vm_snapshot_meta *meta)
 
 		if (vs->vs_flags & VIRTIO_MODERN) {
 			/*
-			 * Re-establish host-side ring pointers from the saved
-			 * GPA addresses on restore; on save the pointers are
-			 * already valid.
-			 *
-			 * vi_vq_init_modern() also sets vq_avail_wrap and
-			 * vq_used_wrap to 1 (initial state), so save/restore
-			 * them AFTER the call so the snapshot values win.
+			 * Modern split ring: re-establish the three host-side
+			 * ring pointers from the saved GPAs, exactly as the
+			 * legacy path does below.
 			 */
-			if (meta->op == VM_SNAPSHOT_RESTORE)
-				vi_vq_init_modern(vs, vq);
+			addr_size = (size_t)vq->vq_qsize *
+			    sizeof(struct vring_desc);
+			SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_desc,
+			    addr_size, false, meta, ret, done);
+
+			addr_size = (2 + (size_t)vq->vq_qsize + 1) *
+			    sizeof(uint16_t);
+			SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_avail,
+			    addr_size, false, meta, ret, done);
+
+			addr_size = (2 + 2 * (size_t)vq->vq_qsize + 1) *
+			    sizeof(uint16_t);
+			SNAPSHOT_GUEST2HOST_ADDR_OR_LEAVE(ctx, vq->vq_used,
+			    addr_size, false, meta, ret, done);
 
 			/* Packed-queue wrap counters (no-ops for split). */
 			SNAPSHOT_VAR_OR_LEAVE(vq->vq_avail_wrap, meta, ret,
