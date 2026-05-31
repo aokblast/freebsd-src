@@ -64,6 +64,24 @@
 #define	DEV_SOFTC(vs) ((void *)(vs))
 
 /*
+ * Return the effective host capabilities for feature negotiation.
+ * VIRTIO_F_ACCESS_PLATFORM (VIRTIO_F_IOMMU_PLATFORM) is implied by
+ * VIRTIO_F_VERSION_1: all modern emulated devices go through bhyve's
+ * paddr_guest2host() translation which is equivalent to an identity
+ * IOMMU mapping, so device virtual addresses equal guest physical
+ * addresses.
+ */
+static inline uint64_t
+vi_hv_caps(const struct virtio_softc *vs)
+{
+	uint64_t caps = vs->vs_vc->vc_hv_caps;
+
+	if (caps & VIRTIO_F_VERSION_1)
+		caps |= VIRTIO_F_IOMMU_PLATFORM;
+	return (caps);
+}
+
+/*
  * Link a virtio_softc to its constants, the device softc, and
  * the PCI emulation.
  */
@@ -288,9 +306,9 @@ vi_common_cfg_read(struct virtio_softc *vs, uint32_t off)
 		break;
 	case VIRTIO_PCI_COMMON_DF:
 		if (vs->vs_dev_feature_sel == 0)
-			value = (uint32_t)vc->vc_hv_caps;
+			value = (uint32_t)vi_hv_caps(vs);
 		else if (vs->vs_dev_feature_sel == 1)
-			value = (uint32_t)(vc->vc_hv_caps >> 32);
+			value = (uint32_t)(vi_hv_caps(vs) >> 32);
 		break;
 	case VIRTIO_PCI_COMMON_GFSELECT:
 		value = vs->vs_drv_feature_sel;
@@ -404,7 +422,7 @@ vi_common_cfg_write(struct virtio_softc *vs, uint32_t off, uint64_t value)
 			    << (vs->vs_drv_feature_sel * 32);
 			vs->vs_negotiated_caps = (vs->vs_negotiated_caps &
 						     ~mask) |
-			    (bits & vc->vc_hv_caps);
+			    (bits & vi_hv_caps(vs));
 		}
 		break;
 	case VIRTIO_PCI_COMMON_MSIX:
@@ -1147,7 +1165,7 @@ bad:
 
 	switch (offset) {
 	case VIRTIO_PCI_HOST_FEATURES:
-		value = vc->vc_hv_caps;
+		value = vi_hv_caps(vs);
 		break;
 	case VIRTIO_PCI_GUEST_FEATURES:
 		value = vs->vs_negotiated_caps;
@@ -1286,7 +1304,7 @@ bad:
 		/* Legacy: only lower 32 bits */
 		vs->vs_negotiated_caps = (vs->vs_negotiated_caps &
 					     0xFFFFFFFF00000000ULL) |
-		    ((uint64_t)(uint32_t)value & vc->vc_hv_caps);
+		    ((uint64_t)(uint32_t)value & vi_hv_caps(vs));
 		if (vc->vc_apply_features)
 			(*vc->vc_apply_features)(DEV_SOFTC(vs),
 			    vs->vs_negotiated_caps);
