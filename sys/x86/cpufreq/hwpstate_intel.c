@@ -88,6 +88,7 @@ struct hwp_softc {
 	bool			hwp_pref_ctrl;
 	bool			hwp_pkg_ctrl;
 	bool			hwp_pkg_ctrl_en;
+	bool			hwp_flexible;
 	bool			hwp_perf_bias;
 	bool			hwp_perf_bias_cached;
 
@@ -430,10 +431,24 @@ set_autonomous_hwp(struct hwp_softc *sc)
 	sc->req |= sc->high << 8;
 
 	/* If supported, request package-level control for this CPU. */
-	if (sc->hwp_pkg_ctrl_en)
-		ret = wrmsr_safe(MSR_IA32_HWP_REQUEST, sc->req |
-		    IA32_HWP_REQUEST_PACKAGE_CONTROL);
-	else
+	if (sc->hwp_pkg_ctrl_en) {
+		uint64_t lpreq = sc->req | IA32_HWP_REQUEST_PACKAGE_CONTROL;
+		/*
+		 * On CPUs with heterogeneous core types (e.g., P-cores and LP
+		 * E-cores on Pantherlake), each core type reports a different
+		 * Highest_Performance.  All per-LP writes to
+		 * MSR_IA32_HWP_REQUEST_PKG race, so the package Maximum ends up
+		 * set by whichever core writes last.  If an LP E-core writes
+		 * last its lower value caps all P-cores, preventing boost.
+		 *
+		 * With Flexible HWP (CPUID.06H:EAX[17]) we can set
+		 * MAXIMUM_VALID so that each LP uses its own per-LP Maximum
+		 * even while deferring everything else to the package MSR.
+		 */
+		if (sc->hwp_flexible)
+			lpreq |= IA32_HWP_REQUEST_MAXIMUM_VALID;
+		ret = wrmsr_safe(MSR_IA32_HWP_REQUEST, lpreq);
+	} else
 		ret = wrmsr_safe(MSR_IA32_HWP_REQUEST, sc->req);
 	if (ret) {
 		device_printf(dev,
@@ -483,6 +498,8 @@ intel_hwpstate_attach(device_t dev)
 		sc->hwp_pref_ctrl = true;
 	if (cpu_power_eax & CPUTPM1_HWP_PKG)
 		sc->hwp_pkg_ctrl = true;
+	if (cpu_power_eax & CPUTPM1_HWP_FLEXIBLE)
+		sc->hwp_flexible = true;
 
 	/* Allow administrators to disable pkg-level control. */
 	sc->hwp_pkg_ctrl_en = (sc->hwp_pkg_ctrl && hwpstate_pkg_ctrl_enable);
@@ -590,10 +607,12 @@ intel_hwpstate_resume(device_t dev)
 		goto out;
 	}
 
-	if (sc->hwp_pkg_ctrl_en)
-		ret = wrmsr_safe(MSR_IA32_HWP_REQUEST, sc->req |
-		    IA32_HWP_REQUEST_PACKAGE_CONTROL);
-	else
+	if (sc->hwp_pkg_ctrl_en) {
+		uint64_t lpreq = sc->req | IA32_HWP_REQUEST_PACKAGE_CONTROL;
+		if (sc->hwp_flexible)
+			lpreq |= IA32_HWP_REQUEST_MAXIMUM_VALID;
+		ret = wrmsr_safe(MSR_IA32_HWP_REQUEST, lpreq);
+	} else
 		ret = wrmsr_safe(MSR_IA32_HWP_REQUEST, sc->req);
 	if (ret) {
 		device_printf(dev,
