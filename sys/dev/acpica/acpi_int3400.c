@@ -6,11 +6,16 @@
  * This software was developed under sponsorship from the FreeBSD Foundation.
  *
  * Driver for the Intel INT3400 Dynamic Power Performance Management (DPTF)
- * device, with support for Pantherlake (PTL) power slides.
+ * device — ACPI enumeration path (HID INT3400 / INTC10D4).
+ *
+ * Shared attach/detach logic and the Pantherlake (PTL) power slides DSM
+ * implementation live here.  The PCI enumeration path is in pci_int3400.c.
  *
  * Reference: Intel DPTF ACPI Extensions Specification,
  * Linux drivers/thermal/intel/int340x_thermal/int3400_thermal.c
  */
+
+#include "opt_acpi.h"
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -22,27 +27,10 @@
 
 #include <machine/_inttypes.h>
 
-#include <contrib/dev/acpica/include/acpi.h>
-#include <contrib/dev/acpica/include/accommon.h>
-
-#include <dev/acpica/acpivar.h>
+#include <dev/acpica/acpi_int3400.h>
 
 #define _COMPONENT	ACPI_INT3400
 ACPI_MODULE_NAME("INT3400")
-
-/*
- * Power slide levels exposed via sysctl, matching the Windows power slider:
- *   0 = Better Battery (power saving)
- *   1 = Balanced
- *   2 = Better Performance
- *   3 = Best Performance
- */
-#define INT3400_PWR_SLIDE_MIN		0
-#define INT3400_PWR_SLIDE_MAX		3
-#define INT3400_PWR_SLIDE_DEFAULT	1	/* Balanced */
-
-/* ACPI notification code from the platform when the power slide changes. */
-#define INT3400_NOTIF_PWRSLIDE		0x83
 
 /* DSM function indices for the Pantherlake power slides DSM. */
 #define PTL_PWR_SLIDE_DSM_ENUM		0	/* Enumerate supported funcs */
@@ -51,12 +39,6 @@ ACPI_MODULE_NAME("INT3400")
 #define PTL_PWR_SLIDE_DSM_GET		3	/* Get current slide level */
 
 #define IDX_TO_BIT(idx)			(1ull << (idx))
-
-static char *int3400_ids[] = {
-	"INT3400",
-	"INTC10D4",
-	NULL
-};
 
 /*
  * Pantherlake power slides DSM UUID: fc3a49d3-3b49-416e-97d3-cb62d7df5a01
@@ -68,25 +50,19 @@ static const struct uuid ptl_pwr_slide_uuid = {
 };
 #define PTL_PWR_SLIDE_DSM_REVISION	1
 
-struct acpi_int3400_softc {
-	device_t	dev;
-	ACPI_HANDLE	handle;
-
-	/* Whether the Pantherlake power slides DSM is present and usable. */
-	bool		ptl_pwr_slide_supported;
-	uint64_t	ptl_pwr_slide_functions;
-
-	/* Cached number of slide levels (0 means unknown / not queried yet). */
-	int		slide_count;
-
-	/* Current power slide level (authoritative when DSM unavailable). */
-	int		slide_level;
+/* ACPI HIDs matched by the ACPI probe path. */
+static char *int3400_ids[] = {
+	"INT3400",
+	"INTC10D4",
+	NULL
 };
 
 static SYSCTL_NODE(_hw, OID_AUTO, int3400, CTLFLAG_RD | CTLFLAG_MPSAFE,
     NULL, "Intel INT3400 DPTF");
 
-static int
+/* ---------- PTL power slides DSM helpers ---------------------------------- */
+
+static ACPI_STATUS
 ptl_pwr_slide_call(struct acpi_int3400_softc *sc, int function,
     ACPI_OBJECT *arg, ACPI_BUFFER *result)
 {
@@ -161,6 +137,8 @@ ptl_pwr_slide_set(struct acpi_int3400_softc *sc, int level)
 	return (ACPI_SUCCESS(status) ? 0 : EIO);
 }
 
+/* ---------- sysctl -------------------------------------------------------- */
+
 static int
 sysctl_pwr_slide(SYSCTL_HANDLER_ARGS)
 {
@@ -185,6 +163,8 @@ sysctl_pwr_slide(SYSCTL_HANDLER_ARGS)
 	return (0);
 }
 
+/* ---------- ACPI notify handler ------------------------------------------- */
+
 static void
 acpi_int3400_notify(ACPI_HANDLE handle __unused, UINT32 notify, void *ctx)
 {
@@ -206,8 +186,10 @@ acpi_int3400_notify(ACPI_HANDLE handle __unused, UINT32 notify, void *ctx)
 	}
 }
 
+/* ---------- PTL DSM probe ------------------------------------------------- */
+
 static void
-acpi_int3400_probe_ptl_pwr_slide(struct acpi_int3400_softc *sc)
+int3400_probe_ptl_pwr_slide(struct acpi_int3400_softc *sc)
 {
 	uint64_t funcs;
 
@@ -232,23 +214,10 @@ acpi_int3400_probe_ptl_pwr_slide(struct acpi_int3400_softc *sc)
 	sc->ptl_pwr_slide_functions = funcs;
 }
 
-static int
-acpi_int3400_probe(device_t dev)
-{
-	char *name;
+/* ---------- shared attach / detach (called by both bus paths) ------------- */
 
-	if (acpi_get_type(dev) != ACPI_TYPE_DEVICE || acpi_disabled("int3400"))
-		return (ENXIO);
-
-	if (ACPI_ID_PROBE(device_get_parent(dev), dev, int3400_ids, &name) > 0)
-		return (ENXIO);
-
-	device_set_desc(dev, "Intel Dynamic Power Performance Management");
-	return (BUS_PROBE_DEFAULT);
-}
-
-static int
-acpi_int3400_attach(device_t dev)
+int
+int3400_attach(device_t dev)
 {
 	struct acpi_int3400_softc *sc = device_get_softc(dev);
 	struct sysctl_ctx_list *ctx;
@@ -257,10 +226,9 @@ acpi_int3400_attach(device_t dev)
 	int level;
 
 	sc->dev = dev;
-	sc->handle = acpi_get_handle(dev);
 	sc->slide_level = INT3400_PWR_SLIDE_DEFAULT;
 
-	acpi_int3400_probe_ptl_pwr_slide(sc);
+	int3400_probe_ptl_pwr_slide(sc);
 
 	if (sc->ptl_pwr_slide_supported) {
 		device_printf(dev, "Pantherlake power slides supported "
@@ -306,8 +274,8 @@ acpi_int3400_attach(device_t dev)
 	return (0);
 }
 
-static int
-acpi_int3400_detach(device_t dev)
+int
+int3400_detach(device_t dev)
 {
 	struct acpi_int3400_softc *sc = device_get_softc(dev);
 
@@ -316,10 +284,36 @@ acpi_int3400_detach(device_t dev)
 	return (0);
 }
 
+/* ---------- ACPI bus path ------------------------------------------------- */
+
+static int
+acpi_int3400_probe(device_t dev)
+{
+	char *name;
+
+	if (acpi_get_type(dev) != ACPI_TYPE_DEVICE || acpi_disabled("int3400"))
+		return (ENXIO);
+
+	if (ACPI_ID_PROBE(device_get_parent(dev), dev, int3400_ids, &name) > 0)
+		return (ENXIO);
+
+	device_set_desc(dev, "Intel Dynamic Power Performance Management");
+	return (BUS_PROBE_DEFAULT);
+}
+
+static int
+acpi_int3400_attach(device_t dev)
+{
+	struct acpi_int3400_softc *sc = device_get_softc(dev);
+
+	sc->handle = acpi_get_handle(dev);
+	return (int3400_attach(dev));
+}
+
 static device_method_t acpi_int3400_methods[] = {
 	DEVMETHOD(device_probe,		acpi_int3400_probe),
 	DEVMETHOD(device_attach,	acpi_int3400_attach),
-	DEVMETHOD(device_detach,	acpi_int3400_detach),
+	DEVMETHOD(device_detach,	int3400_detach),
 	DEVMETHOD_END
 };
 
