@@ -54,6 +54,7 @@ ACPI_MODULE_NAME("INT3400")
 
 static char *int3400_ids[] = {
 	"INT3400",
+	"INTC10D4",
 	NULL
 };
 
