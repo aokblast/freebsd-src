@@ -52,34 +52,20 @@
 #define	__assert_unreachable()	__unreachable()
 #endif	/* __BSD_VISIBLE */
 #else
-#ifdef __cplusplus
-#if __cplusplus < 202002L
 /*
- * C++ modes prior to C++20 cannot simultaneously satisfy all three
- * desirable properties of the sanitiser:
+ * The controlling expression is taken in a boolean context, i.e. it is
+ * contextually converted to bool exactly as in 'if (e)'.  In C++ this honours
+ * an explicit operator bool() -- e.g. the iostream classes and
+ * std::unique_ptr -- as <cassert> requires.
  *
- *   Approach                       No double-eval  Lambda support  Arity check
- *   -----------------------------  --------------  --------------  -----------
- *   sizeof(cast(expression))       yes             no              yes
- *   static_cast<bool>(expression)  no              yes             no
- *   (void)bool(expression)         no              yes             no
- *
- *   NOTE: C++20 introduced lambdas in unevaluated contexts; see P0315R4.
- *
- * Since no approach satisfies all three below C++20, the least harmful
- * choice is to forgo the check entirely rather than silently break one
- * of the remaining guarantees.
- *
+ * The expression is mentioned only once on purpose.  A "sanitiser" that
+ * rejected a stray comma (assert(a, b)) would have to restate the expression
+ * a second time, which makes the compiler diagnose any error inside it twice
+ * and, unless the second mention is itself a contextual conversion, also
+ * rejects types with an explicit operator bool().  Other C libraries forgo
+ * the check for the same reasons.
  */
-#define	__assert_sanitize(...)	((void)0)
-#else
-#define	__assert_sanitize(...)	(void)sizeof(((bool(*)(bool))0)(__VA_ARGS__))
-#endif /* __cplusplus < 202002L */
-#else
-#define	__assert_sanitize(...)	(void)sizeof(((_Bool(*)(_Bool))0)(__VA_ARGS__))
-#endif /* __cplusplus */
-#define	assert(...)	(__assert_sanitize(__VA_ARGS__),       \
-			    (__VA_ARGS__) ? (void)0 :          \
+#define	assert(...)	((__VA_ARGS__) ? (void)0 :             \
 			    __assert(__func__, __FILE__,       \
 			    __LINE__, #__VA_ARGS__))
 #define	_assert(...)	assert(__VA_ARGS__)
