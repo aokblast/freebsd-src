@@ -165,7 +165,6 @@ char *enter_bold;		/* ANSI sequence to set color to bold mode */
 char *enter_underline;		/* ANSI sequence to enter underline mode */
 #endif
 int f_dired;
-off_t dired_begin;
 
 static int rval;
 
@@ -668,8 +667,6 @@ traverse(int argc, char *argv[], int options)
 	if ((ftsp =
 	    fts_open(argv, options, f_nosort ? NULL : mastercmp)) == NULL)
 		err(1, "fts_open");
-	if (f_dired)
-		dired_begin = ftell(stdout);
 
 	/*
 	 * We ignore errors from fts_children here since they will be
@@ -711,12 +708,12 @@ traverse(int argc, char *argv[], int options)
 			 * directory with its name.
 			 */
 			if (output) {
-				putchar('\n');
+				dired_putchar('\n');
 				(void)printname(p->fts_path);
-				puts(":");
+				dired_puts(":");
 			} else if (argc > 1) {
 				(void)printname(p->fts_path);
-				puts(":");
+				dired_puts(":");
 				output = 1;
 			}
 			chp = fts_children(ftsp, ch_options);
