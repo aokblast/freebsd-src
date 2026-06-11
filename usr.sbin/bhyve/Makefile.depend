@@ -16,6 +16,7 @@ DIRDEPS = \
 	lib/libsbuf \
 	lib/libthr \
 	lib/libutil \
+	lib/libusb \
 	lib/libvmmapi \
 	lib/libz \
 

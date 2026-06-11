@@ -27,6 +27,7 @@
 .\" SUCH DAMAGE.
 .\"
 .Dd June 5, 2026
+.Dd June 11, 2026
 .Dt BHYVE 8
 .Os
 .Sh NAME
@@ -1064,15 +1065,38 @@ Many implementations will want to use stronger security, such as running
 the session over an encrypted channel provided by IPsec or SSH.
 .El
 .Ss xHCI USB device backends
-.Bl -bullet
 .Sm off
+.Bl -bullet
 .It
 .Ar tablet
-.Sm on
+.It
+.Ar passthru Cm \&. Ar vendor_id Cm \&. Ar product_id
 .El
+.Sm on
 .Pp
+USB device backends are defined as follows:
+.Bl -tag -width 10n
+.It Ar tablet
 A USB tablet device that provides precise cursor synchronization
 when using VNC.
+.It Ar passthru
+A USB device attached to the host that is passed through to the guest.
+The device to pass through is selected by its
+.Ar vendor_id
+and
+.Ar product_id ,
+both given as hexadecimal values, as reported by
+.Xr usbconfig 8 .
+While the virtual machine is running, the device is claimed from the
+host and is controlled exclusively by the guest.
+Control, interrupt, bulk and isochronous transfers are supported.
+If the device is unplugged while the virtual machine is running, it is
+detached from the guest; a device with the same
+.Ar vendor_id
+and
+.Ar product_id
+is attached to the guest again when it is plugged in.
+.El
 .Ss NVMe device backends
 .Bl -bullet
 .Sm off
@@ -1312,6 +1336,8 @@ cd:/images/install.iso \\
 Run a UEFI virtual machine with a display resolution of 800 by 600 pixels
 that can be accessed via VNC at: 0.0.0.0:5900 or via serial console over
 TCP at: 127.0.0.1:1234 (unsafe if you expose serial console without protection).
+The host USB device with vendor ID 0x0a12 and product ID 0x0001 is passed
+through to the guest.
 .Bd -literal -offset indent
 bhyve -c 2 -m 4G -w -H \\
   -s 0,hostbridge \\
@@ -1319,7 +1345,7 @@ bhyve -c 2 -m 4G -w -H \\
   -s 4,ahci-hd,disk.img \\
   -s 5,virtio-net,tap0 \\
   -s 29,fbuf,tcp=0.0.0.0:5900,w=800,h=600,wait \\
-  -s 30,xhci,tablet \\
+  -s 30,xhci,tablet,passthru.0a12.0001 \\
   -s 31,lpc -l com1,tcp=127.0.0.1:1234 \\
   -l bootrom,/usr/local/share/uefi-firmware/BHYVE_UEFI.fd \\
    uefivm
@@ -1425,6 +1451,7 @@ bhyve -c 4 -s 0,hostbridge -s 1,lpc -s 2,virtio-blk,/my/image \\
 .Xr ethers 5 ,
 .Xr bhyvectl 8 ,
 .Xr bhyveload 8 ,
+.Xr usbconfig 8 ,
 .Xr domainset 9
 .Pp
 .Rs
