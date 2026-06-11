@@ -1302,6 +1302,7 @@ libusb10_bulk_intr_proxy(struct libusb20_transfer *pxfer)
 	uint32_t actlen;
 	uint8_t status;
 	uint8_t flags;
+	uint8_t tr_flags;
 
 	status = libusb20_tr_get_status(pxfer);
 	sxfer = libusb20_tr_get_priv_sc1(pxfer);
@@ -1334,17 +1335,6 @@ libusb10_bulk_intr_proxy(struct libusb20_transfer *pxfer)
 		}
 		/* check for end of data */
 		if (sxfer->rem_len == 0) {
-			if (flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET) {
-				uxfer->flags &=
-				    ~LIBUSB_TRANSFER_ADD_ZERO_PACKET;
-				libusb20_tr_setup_bulk(pxfer, sxfer->curr_data,
-				    0, uxfer->timeout);
-				libusb20_tr_submit(pxfer);
-				libusb10_submit_transfer_sub(
-				    libusb20_tr_get_priv_sc0(pxfer),
-				    uxfer->endpoint);
-				break;
-			}
 			libusb10_complete_transfer(pxfer, sxfer, LIBUSB_TRANSFER_COMPLETED);
 			/* start next queued transfer, if any */
 			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
@@ -1365,11 +1355,24 @@ libusb10_bulk_intr_proxy(struct libusb20_transfer *pxfer)
 		sxfer->curr_data += max_bulk;
 		sxfer->rem_len -= max_bulk;
 
+		/*
+		 * When a zero length packet (ZLP) is requested, ask the
+		 * kernel to terminate the last frame of the transfer with
+		 * a short packet. This appends a ZLP when the data length
+		 * is an exact multiple of the maximum packet size.
+		 */
+		tr_flags = libusb20_tr_get_flags(pxfer);
+		if (sxfer->rem_len == 0 &&
+		    (flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET))
+			tr_flags |= LIBUSB20_TRANSFER_FORCE_SHORT;
+		else
+			tr_flags &= ~LIBUSB20_TRANSFER_FORCE_SHORT;
+		libusb20_tr_set_flags(pxfer, tr_flags);
+
 		libusb20_tr_submit(pxfer);
 
 		/* check if we can fork another USB transfer */
-		if (sxfer->rem_len == 0 &&
-		    !(flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET))
+		if (sxfer->rem_len == 0)
 			libusb10_submit_transfer_sub(libusb20_tr_get_priv_sc0(pxfer), uxfer->endpoint);
 		break;
 
@@ -1628,6 +1631,13 @@ libusb_submit_transfer(struct libusb_transfer *uxfer)
 	pxfer1 = libusb10_get_transfer(uxfer->dev_handle, endpoint, 1);
 	mps = libusb_get_max_packet_size(dev, endpoint);
 
+	/*
+	 * The ADD_ZERO_PACKET flag only has an effect on host-to-device
+	 * (OUT) transfers whose length is an exact multiple of the maximum
+	 * packet size. Clear it otherwise so the kernel is not asked to
+	 * terminate the transfer with a short packet, see
+	 * libusb10_bulk_intr_proxy().
+	 */
 	if ((uxfer->flags & LIBUSB_TRANSFER_ADD_ZERO_PACKET) &&
 	    ((endpoint & LIBUSB_ENDPOINT_IN) || uxfer->length % mps != 0))
 		uxfer->flags &= ~LIBUSB_TRANSFER_ADD_ZERO_PACKET;
