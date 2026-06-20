@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libc \
 	lib/libclang_rt/ubsan_standalone.host \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/librt \
 	lib/libthr \
 	lib/msun \

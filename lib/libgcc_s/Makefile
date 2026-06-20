@@ -26,8 +26,13 @@ SYMBOL_MAPS+=	${.CURDIR}/${MACHINE_CPUARCH}/Symbol.map
 SYMBOL_MAPS+=	${.CURDIR}/SymbolDefault.map
 .endif
 
-.include "../libcompiler_rt/Makefile.inc"
-.include "../libgcc_eh/Makefile.inc"
+# libgcc_s.so.1 is the gcc-compatible shared DSO: it bundles the compiler-rt
+# builtins and the unwinder (and exports the GCC_*/FBSD_* versioned symbols via
+# Symbol.map) so it remains ABI-compatible for existing binaries and ports.  The
+# source lists moved to the clang-named libraries when lib/libcompiler_rt and
+# lib/libgcc_eh were removed.
+.include "${SRCTOP}/lib/libclang_rt/builtins/builtins.mk"
+.include "${SRCTOP}/lib/libunwind/unwind.mk"
 
 # gcc has incompatible internal declarations for __divtc3 and __multc3, but has
 # no option to silence its warning, so make warnings non-fatal.

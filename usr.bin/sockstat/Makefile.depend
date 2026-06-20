@@ -12,7 +12,7 @@ DIRDEPS = \
 	lib/libcasper/services/cap_netdb \
 	lib/libcasper/services/cap_pwd \
 	lib/libcasper/services/cap_sysctl \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libjail \
 
 

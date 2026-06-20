@@ -1,16 +1,6 @@
-CLANG_SUBDIR=clang/21
-CLANGDIR=	/usr/lib/${CLANG_SUBDIR}
-SANITIZER_LIBDIR=		${CLANGDIR}/lib/freebsd
-SANITIZER_SHAREDIR=		${CLANGDIR}/share
-
-# armv[67] is a bit special since we allow a soft-floating version via
-# CPUTYPE matching *soft*. This variant may not actually work though.
-.if ${MACHINE_CPUARCH} == "arm" && \
-    (!defined(CPUTYPE) || ${CPUTYPE:M*soft*} == "")
-CRTARCH?=	armhf
-.else
-CRTARCH?=	${MACHINE_ARCH:S/amd64/x86_64/}
-.endif
+# Resource-dir paths (CLANG_SUBDIR, CLANGDIR, SANITIZER_LIBDIR, CRTARCH) are
+# shared with the compiler_rt libname mapping in bsd.libnames.mk.
+.include <clang-rt.mk>
 
 .if ${COMPILER_TYPE} == "clang"
 # The only way to set the path to the sanitizer libraries with clang is to

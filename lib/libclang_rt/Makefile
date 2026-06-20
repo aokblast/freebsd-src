@@ -4,6 +4,13 @@ SD_ASAN+=	asan_cxx
 SD_ASAN+=	asan_dynamic
 SD_ASAN+=	asan_static
 
+# The builtins are also built early as a bootstrap library (libc links them) via
+# lib/Makefile's SUBDIR_BOOTSTRAP and Makefile.inc1's _prereq_libs.  They are
+# still listed here so that "cd lib/libclang_rt && make" builds them too; the
+# bootstrap entry completes before this (main-list) build via a .WAIT, so this is
+# just a harmless up-to-date check.
+SD_BUILTINS+=	builtins
+
 SD_CFI+=	cfi
 SD_CFI+= 	cfi_diag
 
@@ -89,6 +96,7 @@ SUBDIR+=	${SD_STATS}
 SUBDIR+=	${SD_UBSAN}
 .endif
 
+SUBDIR+=	${SD_BUILTINS}
 SUBDIR+=	${SD_INCLUDE}
 SUBDIR+=	${SD_PROFILE}
 

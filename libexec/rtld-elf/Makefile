@@ -115,8 +115,8 @@ HAS_TESTS=
 SUBDIR.${MK_TESTS}+= tests
 .endif
 
-# Some of the required math functions (div & mod) are implemented in
-# libcompiler_rt on some architectures.
+# Some of the required math functions (div & mod) are implemented in the
+# compiler-rt builtins on some architectures.
 LIBADD+=	compiler_rt
 
 .include <bsd.prog.mk>

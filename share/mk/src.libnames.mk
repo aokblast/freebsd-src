@@ -542,6 +542,9 @@ _DP_rdmacm=	ibverbs
 
 # Define special cases
 LDADD_supcplusplus=	-lsupc++
+# compiler_rt is the clang-rt builtins archive in the clang resource directory;
+# its arch-suffixed name is not on the default search path, so link by full path.
+LDADD_compiler_rt=	${LIBCOMPILER_RT}
 LIBATF_C=	${LIBDESTDIR}${LIBDIR_BASE}/libprivateatf-c.a
 LIBATF_CXX=	${LIBDESTDIR}${LIBDIR_BASE}/libprivateatf-c++.a
 LDADD_atf_c=	-lprivateatf-c

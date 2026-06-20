@@ -4,7 +4,7 @@ DIRDEPS = \
 	gnu/lib/csu \
 	lib/${CSU_DIR} \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 
 
 .include <dirdeps.mk>

@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libalias/libalias \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libmd \
 	lib/libnetgraph \
 	lib/libpam/libpam \

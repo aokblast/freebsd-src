@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/clang/libllvm \
 	lib/libc \
 	lib/libc++ \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libcxxrt \
 	lib/libexecinfo \
 	lib/libthr \

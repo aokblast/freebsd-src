@@ -7,7 +7,7 @@ DIRDEPS = \
 	kerberos5/lib/libkrb5 \
 	lib/${CSU_DIR} \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libpam/libpam \
 
 

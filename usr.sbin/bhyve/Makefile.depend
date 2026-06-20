@@ -10,7 +10,7 @@ DIRDEPS = \
 	lib/libcam \
 	lib/libcapsicum \
 	lib/libcasper/libcasper \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libnetgraph \
 	lib/libnv \
 	lib/libsbuf \

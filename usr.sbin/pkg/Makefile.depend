@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libarchive \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libfetch \
 	lib/libmd \
 	lib/libucl \

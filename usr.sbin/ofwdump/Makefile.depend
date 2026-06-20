@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libc \
 	lib/libc_nonshared \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 
 
 .include <dirdeps.mk>

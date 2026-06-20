@@ -5,6 +5,7 @@ DIRDEPS = \
 	include/xlocale \
 	lib/${CSU_DIR} \
 	lib/libc \
+	lib/libclang_rt/builtins \
 
 
 .include <dirdeps.mk>

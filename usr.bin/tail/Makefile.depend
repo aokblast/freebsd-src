@@ -6,7 +6,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libc \
 	lib/libcapsicum \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libutil \
 
 

@@ -8,7 +8,7 @@ DIRDEPS = \
 	lib/atf/libatf-c \
 	lib/libc \
 	lib/libcam \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libsbuf \
 
 

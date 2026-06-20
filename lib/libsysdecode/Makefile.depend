@@ -60,7 +60,7 @@ DIRDEPS = \
 	lib/libcasper/services/cap_sysctl \
 	lib/libcasper/services/cap_syslog \
 	lib/libcom_err \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libcuse \
 	lib/libdevctl \
 	lib/libdevdctl \

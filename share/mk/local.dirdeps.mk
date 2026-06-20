@@ -26,7 +26,7 @@ DIRDEPS_FILTER.host = \
 	Ninclude* \
 	Nlib/csu* \
 	Nlib/libc \
-	Nlib/libcompiler_rt \
+	Nlib/libclang_rt* \
 	Nlib/[mn]* \
 	Nlib/lib[t]* \
 	Ngnu/lib/lib[a-r]* \
@@ -116,12 +116,12 @@ DIRDEPS += \
 .endif
 
 .if ${DEP_MACHINE:Nhost*} != ""
-# Add in proper libgcc (gnu or LLVM) if not building libcc and libc is needed.
-# Add both gcc_s and gcc_eh as dependencies as the decision to build
-# -static or not is not known here.
-.if ${DEP_RELDIR:M*libgcc*} == "" && ${DIRDEPS:U:Mlib/libc} != ""
+# Add the unwinder and the gcc-compatible shared DSO if libc is needed: libunwind
+# (clang-style, also provides libgcc_eh.a) and libgcc_s (gcc ABI shared DSO).
+.if ${DEP_RELDIR:M*libgcc*} == "" && ${DEP_RELDIR:M*libunwind*} == "" && \
+    ${DIRDEPS:U:Mlib/libc} != ""
 DIRDEPS+= \
-	lib/libgcc_eh \
+	lib/libunwind \
 	lib/libgcc_s
 .endif
 .endif
@@ -181,9 +181,9 @@ C_DIRDEPS= \
 	include/xlocale \
 	lib/${CSU_DIR} \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 
-# libgcc is needed as well but is added later.
+# The unwinder (libunwind / libgcc_s) is needed as well but is added later.
 
 .if ${MK_KERBEROS} != "no" && ${MK_MITKRB5} == "no"
 C_DIRDEPS+=  include/gssapi

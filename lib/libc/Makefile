@@ -59,7 +59,8 @@ CFLAGS+=${CANCELPOINTS_CFLAGS}
 CFLAGS+= -ftls-model=initial-exec
 
 #
-# Link with static libcompiler_rt.a.
+# Link with the static compiler-rt builtins (compiler_rt resolves to
+# libclang_rt.builtins-<arch>.a).
 #
 LDFLAGS+= -nodefaultlibs
 LIBADD+=	compiler_rt
