@@ -955,8 +955,17 @@ gdb_cpu_add(struct vcpu *vcpu)
 		 * execution, vCPUs will be unsuspended from the kernel's point
 		 * of view, so we should restore the previous state before
 		 * continuing.
+		 *
+		 * The BSP is a special case: fbsdrun_addcpu() suspends every
+		 * vCPU (including the BSP) in the kernel before spawning its
+		 * thread, and the BSP is resumed later during startup via
+		 * vm_resume_cpu().  Because that resume may not have happened
+		 * yet when this snapshot was taken, the BSP can appear
+		 * suspended here even though it must run once the debugger
+		 * continues.  Never re-suspend the BSP, otherwise the guest
+		 * makes no progress after a continue in wait mode.
 		 */
-		if (CPU_ISSET(vcpuid, &suspended)) {
+		if (vcpuid != 0 && CPU_ISSET(vcpuid, &suspended)) {
 			error = vm_suspend_cpu(vcpu);
 			assert(error == 0);
 		}
