@@ -8,13 +8,14 @@ SHLIBDIR?=	/lib
 
 # The LLVM libunwind, built with the upstream naming so that the clang driver's
 # default --rtlib=compiler-rt --unwindlib=libunwind finds it natively as
-# -l:libunwind.a / -l:libunwind.so / -lunwind.  It also installs the gcc-style
-# unwinder names libgcc_s.so.1 and libgcc_eh.a as symlinks (see SYMLINKS below),
-# replacing the removed lib/libgcc_s and lib/libgcc_eh.
+# -l:libunwind.a / -l:libunwind.so / -lunwind.  It also installs the static
+# gcc-style name libgcc_eh.a as a symlink (replacing the removed lib/libgcc_eh);
+# libunwind.a has the same objects the old libgcc_eh.a did.
 #
-# This library contains only the unwinder (no builtins): in the clang model the
-# builtins come from libclang_rt.builtins instead.  Note this drops the GCC_*
-# versioned symbols the old from-source libgcc_s.so.1 exported.
+# This library contains only the unwinder (no builtins).  The shared
+# gcc-compatible libgcc_s.so.1 is a real DSO built from source in lib/libgcc_s
+# (it bundles the builtins and exports the GCC_*/FBSD_* versioned symbols), so it
+# is NOT provided here as a symlink.
 
 PACKAGE=	clibs
 LIB=		unwind
@@ -58,16 +59,11 @@ INCS+=		${UNWINDINCDIR}/unwind.h
 INCS+=		${UNWINDINCDIR}/unwind_arm_ehabi.h
 INCS+=		${UNWINDINCDIR}/unwind_itanium.h
 
-# Install the gcc-compatible unwinder names as symlinks: libgcc_eh.a (static)
-# replaces lib/libgcc_eh, and libgcc_s.so.1 / libgcc_s.so (shared) replace
-# lib/libgcc_s, so that -lgcc_eh / -lgcc_s and existing NEEDED libgcc_s.so.1
-# binaries resolve to libunwind.
+# Install the static gcc-compatible name libgcc_eh.a as a symlink (replacing the
+# removed lib/libgcc_eh), so -lgcc_eh resolves to libunwind.a.  The shared
+# libgcc_s.so.1 is a real DSO from lib/libgcc_s, not a symlink.
 .if ${MK_INSTALLLIB} != "no"
 SYMLINKS+=	libunwind.a ${LIBDIR}/libgcc_eh.a
-.endif
-.if !defined(NO_PIC)
-SYMLINKS+=	libunwind.so.1 ${SHLIBDIR}/libgcc_s.so.1
-SYMLINKS+=	libunwind.so ${LIBDIR}/libgcc_s.so
 .endif
 
 .include <bsd.lib.mk>

@@ -6,8 +6,6 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libc \
 	lib/libclang_rt/builtins \
-	lib/libgcc_s \
-	lib/libunwind \
 
 
 .include <dirdeps.mk>

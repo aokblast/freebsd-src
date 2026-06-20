@@ -116,11 +116,13 @@ DIRDEPS += \
 .endif
 
 .if ${DEP_MACHINE:Nhost*} != ""
-# Add the compiler-rt unwinder (libunwind, which also provides the gcc-style
-# libgcc_s/libgcc_eh names) if not building it and libc is needed.
-.if ${DEP_RELDIR:M*libunwind*} == "" && ${DIRDEPS:U:Mlib/libc} != ""
+# Add the unwinder and the gcc-compatible shared DSO if libc is needed: libunwind
+# (clang-style, also provides libgcc_eh.a) and libgcc_s (gcc ABI shared DSO).
+.if ${DEP_RELDIR:M*libgcc*} == "" && ${DEP_RELDIR:M*libunwind*} == "" && \
+    ${DIRDEPS:U:Mlib/libc} != ""
 DIRDEPS+= \
-	lib/libunwind
+	lib/libunwind \
+	lib/libgcc_s
 .endif
 .endif
 

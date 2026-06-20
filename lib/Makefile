@@ -57,6 +57,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libexecinfo \
 	libexpat \
 	libfetch \
+	libgcc_s \
 	libgeom \
 	libifconfig \
 	libipsec \
