@@ -15,7 +15,7 @@ DIRDEPS = \
 	lib/libbz2 \
 	lib/libc \
 	lib/libcam \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libcrypt \
 	lib/libdevstat \
 	lib/libedit \

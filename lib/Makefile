@@ -10,7 +10,6 @@ SUBDIR_BOOTSTRAP= \
 	.WAIT \
 	libc \
 	libc_nonshared \
-	libcompiler_rt \
 	${_libclang_rt} \
 	libc++ \
 	libc++experimental \
@@ -58,8 +57,6 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libexecinfo \
 	libexpat \
 	libfetch \
-	libgcc_eh \
-	libgcc_s \
 	libgeom \
 	libifconfig \
 	libipsec \
@@ -102,6 +99,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libufs \
 	libugidfw \
 	libulog \
+	libunwind \
 	libutil \
 	libutil++ \
 	libuvmem \
@@ -127,7 +125,10 @@ SUBDIR_DEPEND_libbsnmp= ${_libnetgraph}
 SUBDIR_DEPEND_libc++:= libcxxrt
 # libssp_nonshared doesn't need to be linked into libc on every arch, but it is
 # small enough to build that this bit of serialization is likely insignificant.
-SUBDIR_DEPEND_libc= libsys libcompiler_rt libssp_nonshared
+# The compiler-rt builtins (lib/libclang_rt/builtins) that libc links against
+# are built early via _prereq_libs in Makefile.inc1; they are nested under
+# libclang_rt and so cannot be named in this top-level SUBDIR_DEPEND.
+SUBDIR_DEPEND_libc= libsys libssp_nonshared
 SUBDIR_DEPEND_libcam= libsbuf
 SUBDIR_DEPEND_libcasper= libnv
 SUBDIR_DEPEND_libcrypt= libmd
@@ -146,7 +147,7 @@ SUBDIR_DEPEND_libprocstat= libkvm libutil
 SUBDIR_DEPEND_libradius= libmd
 SUBDIR_DEPEND_libsmb= libkiconv
 # See comment above about libssp_nonshared
-SUBDIR_DEPEND_libsys= libcompiler_rt libssp_nonshared
+SUBDIR_DEPEND_libsys= libssp_nonshared
 SUBDIR_DEPEND_libtacplus= libmd
 SUBDIR_DEPEND_libulog= libmd
 SUBDIR_DEPEND_libunbound= ${_libldns}

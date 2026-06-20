@@ -38,7 +38,6 @@ SUBDIR=	blocklist \
 	libbsdstat \
 	libcasper \
 	libcompat \
-	libcompiler_rt \
 	libdwarf \
 	libevent1 \
 	libexecinfo \

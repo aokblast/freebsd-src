@@ -6,7 +6,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libbsddialog \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libgeom \
 	lib/libutil \
 	usr.sbin/bsdinstall/include.amd64 \

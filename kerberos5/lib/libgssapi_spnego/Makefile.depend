@@ -11,7 +11,7 @@ DIRDEPS = \
 	kerberos5/tools/asn1_compile.host \
 	lib/${CSU_DIR} \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libgssapi \
 
 

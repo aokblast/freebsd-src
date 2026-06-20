@@ -5,7 +5,7 @@ DIRDEPS = \
 	include/rpc \
 	include/rpcsvc \
 	lib/${CSU_DIR} \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libsys \
 	usr.bin/yacc.host \
 

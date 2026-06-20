@@ -53,7 +53,7 @@ DIRDEPS = \
 	lib/libcapsicum \
 	lib/libcom_err/doc \
 	lib/libcompat \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libcrypt \
 	lib/libcuse \
 	lib/libcxxrt \
@@ -242,8 +242,7 @@ DIRDEPS+= lib/libefivar
 .endif
 
 DIRDEPS+= \
-	lib/libgcc_eh \
-	lib/libgcc_s
+	lib/libunwind
 
 .if ${MK_PMC} != "no"
 DIRDEPS+= \

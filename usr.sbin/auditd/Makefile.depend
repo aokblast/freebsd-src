@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/libauditd \
 	lib/libbsm \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 
 
 .include <dirdeps.mk>

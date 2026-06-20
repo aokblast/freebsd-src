@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/libc \
 	lib/libcapsicum \
 	lib/libcasper/libcasper \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libxo/libxo \
 
 

@@ -8,7 +8,7 @@ DIRDEPS = \
 	lib/libbegemot \
 	lib/libbsnmp/libbsnmp \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	usr.sbin/bsnmpd/gensnmptree.host \
 
 

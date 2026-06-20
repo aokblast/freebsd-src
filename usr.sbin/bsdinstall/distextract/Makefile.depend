@@ -7,7 +7,7 @@ DIRDEPS = \
 	lib/libarchive \
 	lib/libbsddialog \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/msun \
 	usr.sbin/bsdinstall/include.amd64 \
 

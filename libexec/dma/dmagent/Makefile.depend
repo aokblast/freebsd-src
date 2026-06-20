@@ -6,7 +6,7 @@ DIRDEPS = \
 	include/xlocale \
 	lib/${CSU_DIR} \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	secure/lib/libcrypto \
 	secure/lib/libssl \
 	usr.bin/yacc.host \

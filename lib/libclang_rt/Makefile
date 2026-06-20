@@ -4,6 +4,8 @@ SD_ASAN+=	asan_cxx
 SD_ASAN+=	asan_dynamic
 SD_ASAN+=	asan_static
 
+SD_BUILTINS+=	builtins
+
 SD_CFI+=	cfi
 SD_CFI+= 	cfi_diag
 
@@ -89,6 +91,7 @@ SUBDIR+=	${SD_STATS}
 SUBDIR+=	${SD_UBSAN}
 .endif
 
+SUBDIR+=	${SD_BUILTINS}
 SUBDIR+=	${SD_INCLUDE}
 SUBDIR+=	${SD_PROFILE}
 

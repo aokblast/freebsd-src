@@ -9,7 +9,7 @@ DIRDEPS = \
 	lib/libcapsicum \
 	lib/libcasper/libcasper \
 	lib/libcasper/services/cap_dns \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libipsec \
 
 

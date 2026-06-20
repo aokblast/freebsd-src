@@ -10,7 +10,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libc \
 	lib/libcom_err \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	secure/lib/libcrypto \
 	usr.bin/compile_et.host \
 

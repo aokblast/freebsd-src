@@ -9,6 +9,10 @@
 
 LIBDESTDIR?=	${SYSROOT:U${DESTDIR}}
 
+# Resource-dir paths/arch suffix for the clang compiler-rt builtins, used by the
+# compiler_rt libname mapping (LIBCOMPILER_RT) below.
+.include <clang-rt.mk>
+
 .sinclude <src.libnames.mk>
 
 # Src directory locations are also defined in src.libnames.mk.
@@ -38,7 +42,11 @@ LIBC?=		${LIBDESTDIR}${LIBDIR_BASE}/libc.a
 LIBCALENDAR?=	${LIBDESTDIR}${LIBDIR_BASE}/libcalendar.a
 LIBCAM?=	${LIBDESTDIR}${LIBDIR_BASE}/libcam.a
 LIBCOMPAT?=	${LIBDESTDIR}${LIBDIR_BASE}/libcompat.a
-LIBCOMPILER_RT?=${LIBDESTDIR}${LIBDIR_BASE}/libcompiler_rt.a
+# The compiler_rt libname resolves the base build's -lcompiler_rt directly to the
+# clang-rt builtins archive in the resource directory (see lib/libclang_rt/builtins),
+# so it does not depend on the gcc-style /usr/lib/libcompiler_rt.a symlink being
+# installed first.  That symlink still exists for external -lcompiler_rt/-lgcc use.
+LIBCOMPILER_RT?=${LIBDESTDIR}${SANITIZER_LIBDIR}/libclang_rt.builtins-${CRTARCH}.a
 LIBCOM_ERR?=	${LIBDESTDIR}${LIBDIR_BASE}/libcom_err.a
 LIBCPLUSPLUS?=	${LIBDESTDIR}${LIBDIR_BASE}/libc++.a
 LIBCRYPT?=	${LIBDESTDIR}${LIBDIR_BASE}/libcrypt.a

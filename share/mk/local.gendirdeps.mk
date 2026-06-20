@@ -6,8 +6,7 @@ GENDIRDEPS_FILTER+= \
 	Nlib/libssp_nonshared \
 	Ncddl/usr.bin/ctf* \
 	Nlib/libc_nonshared \
-	Nlib/libgcc_eh \
-	Nlib/libgcc_s \
+	Nlib/libunwind \
 	Nstand/libsa/* \
 	Nstand/libsa32/* \
 	Nusr.bin/awk.host \

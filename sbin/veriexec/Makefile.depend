@@ -6,7 +6,7 @@ DIRDEPS = \
 	lib/${CSU_DIR} \
 	lib/libbearssl \
 	lib/libc \
-	lib/libcompiler_rt \
+	lib/libclang_rt/builtins \
 	lib/libsecureboot \
 	lib/libveriexec \
 	usr.bin/yacc.host \
