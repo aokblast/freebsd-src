@@ -103,6 +103,13 @@ static void check_command(int fd);
 static struct mevent *read_event, *write_event;
 
 static cpuset_t vcpus_active, vcpus_suspended, vcpus_waiting;
+/*
+ * vCPUs suspended in the kernel (vm->debug_cpus) for reasons unrelated to the
+ * debugger: APs that the guest has not yet started with a STARTUP IPI.  This is
+ * captured each time the guest is stopped so that resuming the guest for the
+ * debugger does not inadvertently start these vCPUs.
+ */
+static cpuset_t vcpus_guest_suspended;
 static pthread_mutex_t gdb_lock;
 static pthread_cond_t idle_vcpus;
 static bool first_stop, report_next_stop, swbreak_enabled;
@@ -936,39 +943,15 @@ gdb_cpu_add(struct vcpu *vcpu)
 	 * If a vcpu is added while vcpus are stopped, suspend the new
 	 * vcpu so that it will pop back out with a debug exit before
 	 * executing the first instruction.
+	 *
+	 * Preserving the kernel's view of which vCPUs are suspended across a
+	 * debugger resume is handled centrally in gdb_suspend_vcpus() and
+	 * gdb_resume_vcpus(), so there is nothing to do here beyond parking the
+	 * new vcpu.
 	 */
 	if (!CPU_EMPTY(&vcpus_suspended)) {
-		cpuset_t suspended;
-		int error;
-
-		error = vm_debug_cpus(ctx, &suspended);
-		assert(error == 0);
-
 		CPU_SET(vcpuid, &vcpus_suspended);
 		_gdb_cpu_suspend(vcpu, false);
-
-		/*
-		 * In general, APs are started in a suspended mode such that
-		 * they exit with VM_EXITCODE_DEBUG until the BSP starts them.
-		 * In particular, this refers to the kernel's view of the vCPU
-		 * state rather than our own.  If the debugger resumes guest
-		 * execution, vCPUs will be unsuspended from the kernel's point
-		 * of view, so we should restore the previous state before
-		 * continuing.
-		 *
-		 * The BSP is a special case: fbsdrun_addcpu() suspends every
-		 * vCPU (including the BSP) in the kernel before spawning its
-		 * thread, and the BSP is resumed later during startup via
-		 * vm_resume_cpu().  Because that resume may not have happened
-		 * yet when this snapshot was taken, the BSP can appear
-		 * suspended here even though it must run once the debugger
-		 * continues.  Never re-suspend the BSP, otherwise the guest
-		 * makes no progress after a continue in wait mode.
-		 */
-		if (vcpuid != 0 && CPU_ISSET(vcpuid, &suspended)) {
-			error = vm_suspend_cpu(vcpu);
-			assert(error == 0);
-		}
 	}
 	pthread_mutex_unlock(&gdb_lock);
 }
@@ -1017,9 +1000,23 @@ gdb_cpu_suspend(struct vcpu *vcpu)
 static void
 gdb_suspend_vcpus(void)
 {
+	int error;
 
 	assert(pthread_mutex_isowned_np(&gdb_lock));
 	debug("suspending all CPUs\n");
+
+	/*
+	 * Record which vCPUs are already suspended in the kernel before we
+	 * suspend everything for the debugger.  These are vCPUs that the guest
+	 * has not started yet (e.g. APs awaiting a STARTUP IPI); they must be
+	 * returned to the suspended state when the debugger resumes the guest.
+	 * This is the only point at which the kernel's debug set reflects the
+	 * guest's intent rather than the debugger's, since gdb_suspend_vcpus()
+	 * is always invoked on a running-to-stopped transition.
+	 */
+	error = vm_debug_cpus(ctx, &vcpus_guest_suspended);
+	assert(error == 0);
+
 	vcpus_suspended = vcpus_active;
 	vm_suspend_all_cpus(ctx);
 	if (CPU_CMP(&vcpus_waiting, &vcpus_suspended) == 0)
@@ -1190,10 +1187,25 @@ gdb_step_vcpu(struct vcpu *vcpu)
 static void
 gdb_resume_vcpus(void)
 {
+	int error;
 
 	assert(pthread_mutex_isowned_np(&gdb_lock));
 	vm_resume_all_cpus(ctx);
 	debug("resuming all CPUs\n");
+
+	/*
+	 * vm_resume_all_cpus() clears the kernel's entire debug set, including
+	 * vCPUs that the guest never started.  Put those back so that only
+	 * vCPUs the guest has actually started will run; the rest stay
+	 * suspended until the guest starts them with a STARTUP IPI.
+	 */
+	for (int vcpuid = 0; vcpuid < guest_ncpus; vcpuid++) {
+		if (CPU_ISSET(vcpuid, &vcpus_guest_suspended)) {
+			error = vm_suspend_cpu(vcpus[vcpuid]);
+			assert(error == 0);
+		}
+	}
+
 	CPU_ZERO(&vcpus_suspended);
 	pthread_cond_broadcast(&idle_vcpus);
 }
