@@ -27,6 +27,10 @@ NOTE TO PEOPLE WHO THINK THAT FreeBSD 16.x IS SLOW:
 	world, or to merely disable the most expensive debugging functionality
 	at runtime, run "ln -s 'abort:false,junk:false' /etc/malloc.conf".)
 
+20260623:
+	libusb version has been upgraded to 1.0.27 compatible version.
+	All of the missing parts have been implemented.
+
 20260620:
 	On powerpc64le, long double is now IEEE 754 binary128 (quad
 	precision, 113-bit mantissa) instead of 64-bit double.  This is an
