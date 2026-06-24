@@ -10,7 +10,7 @@ SUBDIR_BOOTSTRAP= \
 	.WAIT \
 	libc \
 	libc_nonshared \
-	${_libclang_rt} \
+	${_libclang_rt_builtins} \
 	libc++ \
 	libc++experimental \
 	libcxxrt \
@@ -43,6 +43,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libcam \
 	libcapsicum \
 	libcasper \
+	${_libclang_rt} \
 	libcompat \
 	libcrypt \
 	libdevctl \
@@ -126,10 +127,9 @@ SUBDIR_DEPEND_libbsnmp= ${_libnetgraph}
 SUBDIR_DEPEND_libc++:= libcxxrt
 # libssp_nonshared doesn't need to be linked into libc on every arch, but it is
 # small enough to build that this bit of serialization is likely insignificant.
-# The compiler-rt builtins (lib/libclang_rt/builtins) that libc links against
-# are built early via _prereq_libs in Makefile.inc1; they are nested under
-# libclang_rt and so cannot be named in this top-level SUBDIR_DEPEND.
-SUBDIR_DEPEND_libc= libsys libssp_nonshared
+# libc links the compiler-rt builtins (LIBADD compiler_rt), so order
+# libclang_rt/builtins before it (the entry is in SUBDIR_BOOTSTRAP above).
+SUBDIR_DEPEND_libc= libsys ${_libclang_rt_builtins} libssp_nonshared
 SUBDIR_DEPEND_libcam= libsbuf
 SUBDIR_DEPEND_libcasper= libnv
 SUBDIR_DEPEND_libcrypt= libmd
@@ -148,7 +148,7 @@ SUBDIR_DEPEND_libprocstat= libkvm libutil
 SUBDIR_DEPEND_libradius= libmd
 SUBDIR_DEPEND_libsmb= libkiconv
 # See comment above about libssp_nonshared
-SUBDIR_DEPEND_libsys= libssp_nonshared
+SUBDIR_DEPEND_libsys= ${_libclang_rt_builtins} libssp_nonshared
 SUBDIR_DEPEND_libtacplus= libmd
 SUBDIR_DEPEND_libulog= libmd
 SUBDIR_DEPEND_libunbound= ${_libldns}
@@ -197,6 +197,10 @@ SUBDIR.${MK_STATS}+=	libstats
 .if (${COMPILER_TYPE} == "clang" || make(clean) || make(cleandir)) && \
     ${MK_CLANG} != "no"
 _libclang_rt=	libclang_rt
+# The compiler-rt builtins are a bootstrap library (libc links them via
+# LIBADD compiler_rt), so they are built separately and earlier than the rest of
+# libclang_rt (the sanitizers/profile/include, which need libc).
+_libclang_rt_builtins=	libclang_rt/builtins
 .elif (${MK_ASAN} != "no" || ${MK_UBSAN} != "no") && make(all)
 .error Requested build with sanitizers but cannot build runtime libraries!
 .endif
