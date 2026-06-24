@@ -73,12 +73,12 @@
 #include <contrib/dev/acpica/include/acpi.h>
 
 #include <dev/acpica/acpivar.h>
+#include <dev/acpica/acpi_cppc_lib.h>
 
 #include <x86/cpufreq/hwpstate_common.h>
 
 #include "acpi_if.h"
 #include "cpufreq_if.h"
-
 
 #define	MSR_AMD_10H_11H_LIMIT	0xc0010061
 #define	MSR_AMD_10H_11H_CONTROL	0xc0010062
@@ -152,6 +152,10 @@ struct hwpstate_setting {
 #define HWPFL_USE_CPPC			(1 << 0)
 #define HWPFL_CPPC_REQUEST_NOT_READ	(1 << 1)
 
+/* Bits for the hwpstate_amd_cppc_verify tunable. */
+#define	HWPSTATE_AMD_CPPC_VERIFY_CPUID	(1 << 0)
+#define	HWPSTATE_AMD_CPPC_VERIFY_ACPI	(1 << 1)
+
 struct hwpstate_cpufreq_methods {
 	int (*get)(device_t dev, struct cf_setting *cf);
 	int (*set)(device_t dev, const struct cf_setting *cf);
@@ -177,6 +181,7 @@ struct hwpstate_softc {
 		};
 		struct {
 			uint64_t request;
+			struct acpi_cppc_ctx *ctx;
 		} cppc;
 	};
 	u_int		cpuid;
@@ -210,6 +215,13 @@ static bool	hwpstate_amd_cppc_enable = true;
 SYSCTL_BOOL(_machdep, OID_AUTO, hwpstate_amd_cppc_enable, CTLFLAG_RDTUN,
     &hwpstate_amd_cppc_enable, 0,
     "Set 1 (default) to enable AMD CPPC, 0 to disable");
+
+static int	hwpstate_amd_cppc_verify = HWPSTATE_AMD_CPPC_VERIFY_CPUID |
+    HWPSTATE_AMD_CPPC_VERIFY_ACPI;
+SYSCTL_INT(_machdep, OID_AUTO, hwpstate_amd_cppc_verify, CTLFLAG_RDTUN,
+    &hwpstate_amd_cppc_verify, 0,
+    "Bitmask gating CPPC use (default 0x3): bit 0 (0x1) requires the CPUID "
+    "CPPC bit; bit 1 (0x2) requires an ACPI _CPC object");
 
 static device_method_t hwpstate_methods[] = {
 	/* Device interface */
@@ -871,10 +883,20 @@ enable_cppc_cb(void *args)
 	 * does.
 	 */
 	SET_BITS_VALUE(data->request, AMD_CPPC_REQUEST_EPP_BITS, 0);
-	/* 0 in "Desired Performance" is autonomous mode. */
-	MPASS(highest_perf != 0);
-	SET_BITS_VALUE(data->request, AMD_CPPC_REQUEST_DES_PERF_BITS,
-	    highest_perf);
+
+	/*
+	 * Some CPUs advertise CPPC in CPUID but lack a _CPC object in the
+	 * DSDT, and their autonomous mode is broken.  When the _CPC object is
+	 * present we use autonomous mode; otherwise we pin to the highest
+	 * performance level to avoid performance regressions.
+	 */
+	if (sc->cppc.ctx != NULL)
+		/* 0 in "Desired Performance" is autonomous mode. */
+		SET_BITS_VALUE(data->request, AMD_CPPC_REQUEST_DES_PERF_BITS,
+		    0);
+	else
+		SET_BITS_VALUE(data->request, AMD_CPPC_REQUEST_DES_PERF_BITS,
+		    highest_perf);
 
 	error = wrmsr_safe(MSR_AMD_CPPC_REQUEST, data->request);
 	if (error != 0)
@@ -1023,6 +1045,7 @@ static int
 hwpstate_probe(device_t dev)
 {
 	struct hwpstate_softc *const sc = device_get_softc(dev);
+	struct acpi_cppc_ctx *ctx;
 
 	if (cpu_get_pcpu(dev) == NULL) {
 		device_printf(dev,
@@ -1031,19 +1054,33 @@ hwpstate_probe(device_t dev)
 	}
 	sc->cpuid = cpu_get_pcpuid(dev);
 
-	if (hwpstate_amd_cppc_enable &&
-	    (amd_extended_feature_extensions & AMDFEID_CPPC)) {
+	if (hwpstate_amd_cppc_enable)
 		sc->flags |= HWPFL_USE_CPPC;
-		device_set_desc(dev,
-		    "AMD Collaborative Processor Performance Control (CPPC)");
-	} else
-		device_set_desc(dev, "Cool`n'Quiet 2.0");
+
+	if ((hwpstate_amd_cppc_verify & HWPSTATE_AMD_CPPC_VERIFY_CPUID) != 0 &&
+	    (amd_extended_feature_extensions & AMDFEID_CPPC) == 0)
+		sc->flags &= ~HWPFL_USE_CPPC;
+	/*
+	 * Keep the _CPC context local until we commit to CPPC: sc->cppc shares
+	 * a union with the P-state settings, so storing it before choosing the
+	 * P-state path would leak the context and be clobbered by that path.
+	 */
+	ctx = acpi_cppc_ctx_init(dev);
+	if ((hwpstate_amd_cppc_verify & HWPSTATE_AMD_CPPC_VERIFY_ACPI) != 0 &&
+	    ctx == NULL)
+		sc->flags &= ~HWPFL_USE_CPPC;
 
 	sc->dev = dev;
 	if ((sc->flags & HWPFL_USE_CPPC) != 0) {
+		sc->cppc.ctx = ctx;
 		sc->cpufreq_methods = &cppc_methods;
+		device_set_desc(dev,
+		    "AMD Collaborative Processor Performance Control (CPPC)");
 		return (0);
 	}
+	if (ctx != NULL)
+		acpi_cppc_ctx_free(dev, ctx);
+	device_set_desc(dev, "Cool`n'Quiet 2.0");
 	sc->cpufreq_methods = &pstate_methods;
 	return (hwpstate_probe_pstate(dev));
 }
@@ -1283,6 +1320,8 @@ hwpstate_detach(device_t dev)
 	sc = device_get_softc(dev);
 	if ((sc->flags & HWPFL_USE_CPPC) == 0)
 		hwpstate_goto_pstate(dev, 0);
+	else if (sc->cppc.ctx != NULL)
+		acpi_cppc_ctx_free(dev, sc->cppc.ctx);
 	return (cpufreq_unregister(dev));
 }
 
