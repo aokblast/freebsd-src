@@ -1332,14 +1332,11 @@ gfx_fb_param(void *arg, int cmd, unsigned int value)
 		/* FALLTHROUGH */
 	case TP_SHOWCURSOR:
 		c = teken_get_cursor(&state->tg_teken);
-		if (value != 0) {
+		gfx_fb_cursor_draw(state, c, true);
+		if (value != 0)
 			state->tg_cursor_visible = true;
-			gfx_fb_cursor_draw(state, c, true);
-		} else {
-			/* Erase the cursor before marking it invisible. */
-			gfx_fb_cursor_draw(state, c, false);
+		else
 			state->tg_cursor_visible = false;
-		}
 		gfx_fb_flush();
 		break;
 	default:
