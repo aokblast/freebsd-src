@@ -1104,13 +1104,20 @@ gfx_fb_flush(void)
 	if (gfx_state.tg_fb_type == FB_GOP && !ignore_gop_blt &&
 	    boot_services_active) {
 		EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = gfx_state.tg_private;
+		EFI_GRAPHICS_OUTPUT_BLT_PIXEL *src;
 		EFI_TPL tpl;
 
+		/*
+		 * Point directly at the dirty region so SourceX=0, SourceY=0
+		 * can be used.  Some firmware ignores non-zero SourceX/SourceY
+		 * and always reads from BltBuffer[0,0], corrupting the output.
+		 */
+		src = (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)gfx_state.tg_shadow_fb +
+		    y * pitch + x;
 		assert(gop != NULL);
 		tpl = BS->RaiseTPL(TPL_NOTIFY);
-		(void) gop->Blt(gop,
-		    (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)gfx_state.tg_shadow_fb,
-		    EfiBltBufferToVideo, x, y, x, y, w, h,
+		(void) gop->Blt(gop, src, EfiBltBufferToVideo,
+		    0, 0, x, y, w, h,
 		    pitch * sizeof(*gfx_state.tg_shadow_fb));
 		BS->RestoreTPL(tpl);
 		goto done;
@@ -1325,11 +1332,14 @@ gfx_fb_param(void *arg, int cmd, unsigned int value)
 		/* FALLTHROUGH */
 	case TP_SHOWCURSOR:
 		c = teken_get_cursor(&state->tg_teken);
-		gfx_fb_cursor_draw(state, c, true);
-		if (value != 0)
+		if (value != 0) {
 			state->tg_cursor_visible = true;
-		else
+			gfx_fb_cursor_draw(state, c, true);
+		} else {
+			/* Erase the cursor before marking it invisible. */
+			gfx_fb_cursor_draw(state, c, false);
 			state->tg_cursor_visible = false;
+		}
 		gfx_fb_flush();
 		break;
 	default:
@@ -1400,26 +1410,38 @@ gfx_fb_copy_area(teken_gfx_t *state, const teken_rect_t *s,
 	pitch = state->tg_fb.fb_width;
 	bytes = width * sizeof (*state->tg_shadow_fb);
 
-	uint32_t dst_x = dx + state->tg_origin.tp_col;
-	uint32_t dst_y = dy + state->tg_origin.tp_row;
+	/*
+	 * Convert terminal-pixel coordinates to screen coordinates so that
+	 * shadow accesses are consistent with the screen-coord indexing used
+	 * by every other shadow writer (gfxfb_shadow_fill, gfxfb_shadow_buf_write,
+	 * gfx_fb_cons_display) and by gfx_fb_flush().
+	 */
+	uint32_t ssx = sx + state->tg_origin.tp_col;
+	uint32_t ssy = sy + state->tg_origin.tp_row;
+	uint32_t dsx = dx + state->tg_origin.tp_col;
+	uint32_t dsy = dy + state->tg_origin.tp_row;
+	uint32_t dst_x = dsx;
+	uint32_t dst_y = dsy;
 	uint32_t dst_h = height;
 
 	/*
 	 * To handle overlapping areas, set up reverse copy here.
+	 * The origin offset cancels out in the comparison so the
+	 * terminal-relative form is equivalent.
 	 */
 	if (dy * pitch + dx > sy * pitch + sx) {
-		sy += height;
-		dy += height;
+		ssy += height;
+		dsy += height;
 		step = -step;
 	}
 
 	while (height-- > 0) {
-		uint32_t *source = &state->tg_shadow_fb[sy * pitch + sx];
-		uint32_t *destination = &state->tg_shadow_fb[dy * pitch + dx];
+		uint32_t *source = &state->tg_shadow_fb[ssy * pitch + ssx];
+		uint32_t *destination = &state->tg_shadow_fb[dsy * pitch + dsx];
 
 		bcopy(source, destination, bytes);
-		sy += step;
-		dy += step;
+		ssy += step;
+		dsy += step;
 	}
 
 	gfx_shadow_mark_dirty(dst_x, dst_y, width, dst_h);
@@ -1618,13 +1640,11 @@ gfx_fb_cons_display(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
 	 */
 	if (gfx_state.tg_shadow_fb != NULL) {
 		uint32_t pitch = gfx_state.tg_fb.fb_width;
-		uint32_t sy = y - gfx_state.tg_origin.tp_row;
-		uint32_t sx = x - gfx_state.tg_origin.tp_col;
 
 		p = data;
 		for (uint32_t row = 0; row < height; row++) {
 			buf = (void *)(gfx_state.tg_shadow_fb +
-			    (sy + row) * pitch + sx);
+			    (y + row) * pitch + x);
 			bitmap_cpy(buf, &p[row * width], width);
 		}
 		gfx_shadow_mark_dirty(x, y, width, height);
