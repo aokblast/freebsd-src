@@ -1759,16 +1759,24 @@ xhci_td_fill_link(struct xhci_td *td, struct xhci_td *td_next, bool last)
 	trb = &td->td_trb[td->ntrb];
 	trb->qwTrb0 = td_next != NULL ? htole64(td_next->td_self) : 0;
 	trb->dwTrb2 = 0;
+	/*
+	 * Every transfer frame/stage occupies its own TD, so this link TRB
+	 * always sits on a TD boundary and must NOT set CHAIN.  Setting CHAIN
+	 * here makes the controller treat consecutive frames/stages as a
+	 * single chained TD and coalesce their Transfer Events into one.  That
+	 * desynchronises xhci_check_transfer()'s per-TD td_transfer_cache
+	 * advancement (it expects one event per TD) and stalls any multi-stage
+	 * transfer -- notably control transfers, which breaks enumeration.
+	 *
+	 * The original xhci_setup_generic_chain_sub() likewise cleared CHAIN
+	 * from the terminating link TRB of every frame.  The only place that
+	 * still needs CHAIN on a boundary link is the force_short_xfer ZLP
+	 * corner case, which xhci_setup_bulk() patches in explicitly.
+	 */
 	dword = XHCI_TRB_3_TYPE_SET(XHCI_TRB_TYPE_LINK) | XHCI_TRB_3_CYCLE_BIT |
 	    XHCI_TRB_3_IOC_BIT;
-	/*
-	 * CHAIN-BIT: Ensure that a multi-TRB IN-endpoint frame only receives
-	 * a single short-packet event by setting CHAIN in the link TRB.
-	 * Some controllers also require it to send a ZLP correctly.
-	 */
-	if (!last)
-		dword |= XHCI_TRB_3_CHAIN_BIT;
 	trb->dwTrb3 = htole32(dword);
+	(void)last;
 }
 
 /*
@@ -1878,7 +1886,14 @@ xhci_setup_ctrl(struct usb_xfer *xfer, struct xhci_td *td)
 		    (uint8_t *)(uintptr_t)&trb->qwTrb0, 8);
 		trb->dwTrb2 = htole32(
 		    XHCI_TRB_2_BYTES_SET(8) | XHCI_TRB_2_TDSZ_SET(0));
+		/*
+		 * IOC: the Setup stage is a complete one-TRB TD; without IOC
+		 * the controller generates no Transfer Event for it and
+		 * td_transfer_cache never advances past the Setup stage, so the
+		 * control transfer (and thus enumeration) hangs.
+		 */
 		dword = XHCI_TRB_3_CYCLE_BIT | XHCI_TRB_3_IDT_BIT |
+		    XHCI_TRB_3_IOC_BIT |
 		    XHCI_TRB_3_TYPE_SET(XHCI_TRB_TYPE_SETUP_STAGE);
 		/* TRT field: set only when wLength != 0 (XHCI 1.2 §4.11.2.2) */
 		if (trb->qwTrb0 & htole64(XHCI_TRB_0_WLENGTH_MASK))
