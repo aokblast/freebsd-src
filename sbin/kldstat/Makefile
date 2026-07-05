@@ -29,6 +29,8 @@ PACKAGE=runtime
 PROG=	kldstat
 MAN=	kldstat.8
 
-LIBADD=	util
+CFLAGS+=-I${SRCTOP}/lib/libkldelf
+
+LIBADD=	util elf kldelf
 
 .include <bsd.prog.mk>

@@ -28,11 +28,16 @@
 
 #include <sys/types.h>
 #include <sys/param.h>
-#include <sys/module.h>
 #include <sys/linker.h>
+#include <sys/module.h>
+#include <sys/queue.h>
 
 #include <err.h>
+#include <errno.h>
+#include <gelf.h>
+#include <kldelf.h>
 #include <libutil.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +50,131 @@ static void printfile(int, int, int);
 static void usage(void) __dead2;
 
 static int showdata = 0;
+
+struct module_map_entry {
+	char *module_name;
+	char *ko_path;		/* shared by all modules from one file */
+	char *prefix;
+	SLIST_ENTRY(module_map_entry) entry;
+};
+static SLIST_HEAD(module_map_list, module_map_entry) module_map =
+    SLIST_HEAD_INITIALIZER(module_map);
+
+static void
+clean_modules_mapping(void)
+{
+	struct module_map_entry *entry, *next;
+
+	SLIST_FOREACH_SAFE(entry, &module_map, entry, next) {
+		/*
+		 * Entries from the same file are inserted consecutively
+		 * and share one ko_path allocation; free it once, on the
+		 * last entry of each run.
+		 */
+		if (next == NULL || next->ko_path != entry->ko_path)
+			free(entry->ko_path);
+		free(entry->prefix);
+		free(entry->module_name);
+		free(entry);
+	}
+	SLIST_INIT(&module_map);
+}
+
+static struct module_map_entry *
+new_module_map_entry(char *ko_path)
+{
+	struct module_map_entry *entp;
+
+	entp = calloc(1, sizeof(*entp));
+	if (entp == NULL)
+		err(1, "calloc");
+	entp->ko_path = ko_path;
+	return (entp);
+}
+
+static void
+init_modules_mapping(void)
+{
+	struct module_map_entry *entp;
+	struct kld_file_stat stat;
+	struct module_stat mod_stat;
+	const char *child_name;
+	char *ko_path;
+	int fileid, modid, nmod;
+
+	if (!SLIST_EMPTY(&module_map))
+		return;
+	for (fileid = kldnext(0); fileid > 0; fileid = kldnext(fileid)) {
+		stat.version = sizeof(struct kld_file_stat);
+		if (kldstat(fileid, &stat) < 0)
+			continue;
+		/* All modules from this file share one copy of its path. */
+		ko_path = strdup(stat.pathname);
+		if (ko_path == NULL)
+			err(1, "strdup");
+		nmod = 0;
+		if (strcmp(stat.name, "kernel") == 0) {
+			entp = new_module_map_entry(ko_path);
+			entp->module_name = strdup("kernel");
+			if (entp->module_name == NULL)
+				err(1, "strdup");
+			SLIST_INSERT_HEAD(&module_map, entp, entry);
+			nmod++;
+		}
+		for (modid = kldfirstmod(fileid); modid > 0;
+		    modid = modfnext(modid)) {
+			mod_stat.version = sizeof(struct module_stat);
+			if (modstat(modid, &mod_stat) < 0)
+				continue;
+			entp = new_module_map_entry(ko_path);
+			if ((child_name = strchr(mod_stat.name, '/')) != NULL) {
+				entp->prefix = strndup(mod_stat.name,
+				    child_name - mod_stat.name);
+				entp->module_name = strdup(child_name + 1);
+				if (entp->prefix == NULL)
+					err(1, "strndup");
+			} else
+				entp->module_name = strdup(mod_stat.name);
+			if (entp->module_name == NULL)
+				err(1, "strdup");
+			SLIST_INSERT_HEAD(&module_map, entp, entry);
+			nmod++;
+		}
+		/* No entry references the path if the file had no modules. */
+		if (nmod == 0)
+			free(ko_path);
+	}
+	if (!SLIST_EMPTY(&module_map))
+		atexit(clean_modules_mapping);
+}
+
+static void
+print_module_dependency(const char *modname, const struct Gmod_depend *mdp)
+{
+	struct module_map_entry *entry;
+	bool found = false;
+
+	/*
+	 * A module name is not unique: the same driver can attach to
+	 * more than one bus (e.g. hidbus on usb and iic), so report
+	 * every file that provides the dependency.
+	 */
+	SLIST_FOREACH(entry, &module_map, entry) {
+		if (strcmp(entry->module_name, modname) != 0)
+			continue;
+		found = true;
+		printf("\t\t  depends on %s.%d (%d,%d) => %s", modname,
+		    mdp->md_ver_preferred, mdp->md_ver_minimum,
+		    mdp->md_ver_maximum, entry->ko_path);
+		if (entry->prefix != NULL)
+			printf(" (%s)", entry->prefix);
+		printf("\n");
+	}
+	if (!found)
+		printf("\t\t  depends on %s.%d (%d,%d) => not found\n", modname,
+		    mdp->md_ver_preferred, mdp->md_ver_minimum,
+		    mdp->md_ver_maximum);
+}
 
 static void
 printmod(int modid)
@@ -63,6 +193,58 @@ printmod(int modid)
 		    stat.data.ulongval);
 	} else
 		printf("\t\t%3d %s\n", stat.id, stat.name);
+}
+
+static void
+print_file_dependency(const char *full_path)
+{
+	struct elf_file ef;
+	struct Gmod_metadata md;
+	struct Gmod_depend mdp;
+	GElf_Addr *entries;
+	char cval[MAXMODNAME + 1];
+	long i, n;
+	int error;
+
+	init_modules_mapping();
+
+	if (elf_open_file(&ef, full_path, 1) != 0)
+		return;
+	entries = NULL;
+	error = elf_read_linker_set(&ef, MDT_SETNAME, &entries, &n);
+	if (error != 0) {
+		/* A file without module metadata has no dependencies. */
+		if (error != ENOENT && error != ESRCH)
+			warnc(error, "%s: can't read module metadata",
+			    full_path);
+		goto out;
+	}
+	for (i = 0; i < n; i++) {
+		error = elf_read_mod_metadata(&ef, entries[i], &md);
+		if (error != 0) {
+			warnc(error, "%s: can't read module metadata",
+			    full_path);
+			goto out;
+		}
+		if (md.md_type != MDT_DEPEND)
+			continue;
+		error = elf_read_string(&ef, md.md_cval, cval, sizeof(cval));
+		if (error != 0) {
+			warnc(error, "%s: can't read module dependency name",
+			    full_path);
+			goto out;
+		}
+		error = elf_read_mod_depend(&ef, md.md_data, &mdp);
+		if (error != 0) {
+			warnc(error, "%s: can't read module dependency",
+			    full_path);
+			goto out;
+		}
+		print_module_dependency(cval, &mdp);
+	}
+out:
+	free(entries);
+	elf_close_file(&ef);
 }
 
 static void
@@ -94,6 +276,8 @@ printfile(int fileid, int verbose, int humanized)
 		printf("\t\t Id Name\n");
 		for (modid = kldfirstmod(fileid); modid > 0; modid = modfnext(modid))
 			printmod(modid);
+		printf("\tDependencies:\n");
+		print_file_dependency(stat.pathname);
 	} else
 		printf("\n");
 }
@@ -153,6 +337,9 @@ main(int argc, char *argv[])
 
 	if (argc != 0)
 		usage();
+
+	if (verbose && elf_version(EV_CURRENT) == EV_NONE)
+		errx(1, "unsupported libelf");
 
 	if (modname != NULL) {
 		if ((modid = modfind(modname)) < 0) {

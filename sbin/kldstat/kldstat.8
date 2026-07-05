@@ -25,7 +25,7 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.Dd January 4, 2025
+.Dd July 6, 2026
 .Dt KLDSTAT 8
 .Os
 .Sh NAME
@@ -66,6 +66,15 @@ Display the status of only the file with this filename.
 Quietly check if file is loaded or compiled into the kernel.
 .It Fl v
 Be more verbose.
+For each file, also list the modules it contains and the module
+dependencies recorded in the file on disk.
+Each dependency is shown with its preferred, minimum, and maximum
+version numbers, followed by the loaded file which currently provides
+the module, or
+.Ql not found
+if no loaded module matches.
+For a module registered by a driver, the name of the parent bus is
+shown in parentheses.
 .El
 .Sh EXIT STATUS
 .Ex -std
@@ -101,6 +110,9 @@ Id Refs Address             Size Name
         Contains modules:
                  Id Name
                   2 linuxelf
+        Dependencies:
+                  depends on kernel.1500026 (1500026,1599999) => /boot/kernel/kernel
+                  depends on linux_common.1 (1,1) => /boot/kernel/linux_common.ko
 .Ed
 .Pp
 Same as above using the
@@ -113,6 +125,9 @@ Id Refs Address             Size Name
         Contains modules:
                  Id Name
                   2 linuxelf
+        Dependencies:
+                  depends on kernel.1500026 (1500026,1599999) => /boot/kernel/kernel
+                  depends on linux_common.1 (1,1) => /boot/kernel/linux_common.ko
 .Ed
 .Pp
 Show the status of the
