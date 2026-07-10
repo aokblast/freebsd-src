@@ -168,7 +168,19 @@ _rtld_thread_init(void *li __unused)
 static pthread_once_t dl_phdr_info_once = PTHREAD_ONCE_INIT;
 static struct dl_phdr_info phdr_info;
 #ifndef PIC
-static mutex_t dl_phdr_info_lock = MUTEX_INITIALIZER;
+static mutex_t dl_phdr_info_lock;
+static pthread_once_t dl_phdr_info_lock_once = PTHREAD_ONCE_INIT;
+
+static void
+dl_phdr_info_lock_init(void)
+{
+	pthread_mutexattr_t ma;
+
+	_pthread_mutexattr_init(&ma);
+	_pthread_mutexattr_settype(&ma, PTHREAD_MUTEX_RECURSIVE);
+	_pthread_mutex_init(&dl_phdr_info_lock, &ma);
+	_pthread_mutexattr_destroy(&ma);
+}
 #endif
 
 static void
@@ -244,11 +256,15 @@ dl_iterate_phdr(int (*callback)(struct dl_phdr_info *, size_t, void *) __unused,
 	int error;
 
 #if !defined(IN_LIBDL) && !defined(PIC)
-	mutex_lock(&dl_phdr_info_lock);
+	if (__isthreaded) {
+		_once(&dl_phdr_info_lock_once, dl_phdr_info_lock_init);
+		_pthread_mutex_lock(&dl_phdr_info_lock);
+	}
 #endif
 	error = _dl_iterate_phdr_locked(callback, data);
 #if !defined(IN_LIBDL) && !defined(PIC)
-	mutex_unlock(&dl_phdr_info_lock);
+	if (__isthreaded)
+		_pthread_mutex_unlock(&dl_phdr_info_lock);
 #endif
 	return (error);
 }
