@@ -86,6 +86,11 @@ extern int (*apei_nmi)(void);
 
 void	acpi_set_root(vm_paddr_t addr);
 
+#define ACPI_CPPC_FFH
+struct acpi_cppc_ffh;
+uint64_t acpi_ffh_read(device_t dev, struct acpi_cppc_ffh *ffh);
+void acpi_ffh_write(device_t dev, struct acpi_cppc_ffh*, uint64_t val);
+
 #endif /* _KERNEL */
 
 #endif /* __ACPICA_MACHDEP_H__ */

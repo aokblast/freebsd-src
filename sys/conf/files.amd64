@@ -418,6 +418,7 @@ contrib/x86emu/x86emu.c		optional x86bios | dpms | pci | vesa
 # config(8) doesn't have a way to force standard options, so we've been inconsistent
 # about marking non-optional things 'standard'.
 x86/acpica/madt.c		optional	acpi
+x86/acpica/acpi_cppc_platform.c		optional	acpi
 x86/isa/atpic.c			optional	atpic isa
 x86/isa/elcr.c			optional	atpic isa | mptable
 x86/isa/isa.c			standard
