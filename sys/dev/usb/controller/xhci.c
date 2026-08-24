@@ -3940,6 +3940,12 @@ xhci_configure_reset_endpoint(struct usb_xfer *xfer)
  	if (epno == 0)
 		return (USB_ERR_NO_PIPE);		/* invalid */
 
+	/* fetch and clear any pending data toggle reset request */
+	USB_BUS_LOCK(udev->bus);
+	drop = pepext->trb_toggle_reset;
+	pepext->trb_toggle_reset = 0;
+	USB_BUS_UNLOCK(udev->bus);
+
 	XHCI_CMD_LOCK(sc);
 
 	/* configure endpoint */
@@ -3957,26 +3963,24 @@ xhci_configure_reset_endpoint(struct usb_xfer *xfer)
 	 */
 	switch (xhci_get_endpoint_state(udev, epno)) {
 	case XHCI_EPCTX_0_EPSTATE_DISABLED:
-	case XHCI_EPCTX_0_EPSTATE_STOPPED:
+		/* the Add operation below resets the data toggle value */
 		drop = 0;
+		break;
+	case XHCI_EPCTX_0_EPSTATE_STOPPED:
 		break;
 	case XHCI_EPCTX_0_EPSTATE_HALTED:
 		err = xhci_cmd_reset_ep(sc, 0, epno, index);
-		drop = (err != 0);
-		if (drop)
+		if (err != 0) {
+			drop = 1;
 			DPRINTF("Could not reset endpoint %u\n", epno);
+		}
 		break;
 	default:
-		/*
-		 * xHCI spec 4.6.8:
-		 * The Drop and Add operation resets the toggle bit, which can
-		 * cause a toggle mismatch between the device and host. As a
-		 * result, xHCI may refuse to receive or process the packet.
-		 */
 		err = xhci_cmd_stop_ep(sc, 0, epno, index);
-		drop = (err != 0);
-		if (drop)
+		if (err != 0) {
+			drop = 1;
 			DPRINTF("Could not stop endpoint %u\n", epno);
+		}
 		break;
 	}
 
@@ -3996,6 +4000,18 @@ xhci_configure_reset_endpoint(struct usb_xfer *xfer)
 	mask = (1U << epno);
 
 	/*
+	 * The Drop and Add sequence of the Configure Endpoint command is
+	 * the only way to reset the data toggle value (USB 2.0), or the
+	 * sequence number (USB 3.0), in the endpoint context, refer to the
+	 * xHCI specification, section 4.6.8. Only do that when the USB
+	 * stack has cleared its own data toggle value, or when the
+	 * endpoint could not be stopped, because a device only resets its
+	 * data toggle value when it is halted and receives a
+	 * CLEAR_FEATURE(ENDPOINT_HALT) request, refer to the USB 2.0
+	 * specification, section 9.4.5. Dropping the endpoint at any other
+	 * time makes the host and the device data toggle values mismatch,
+	 * which was observed while testing the EZ-USB FX2 device.
+	 *
 	 * So-called control and isochronous transfer types have
 	 * predefined data toggles (USB 2.0) or sequence numbers (USB
 	 * 3.0) and does not need to be dropped.
@@ -4241,6 +4257,11 @@ xhci_ep_clear_stall(struct usb_device *udev, struct usb_endpoint *ep)
 	USB_BUS_LOCK(udev->bus);
 	pepext->trb_halted = 1;
 	pepext->trb_running = 0;
+	/*
+	 * The USB stack has cleared its own data toggle value and expects
+	 * the hardware data toggle value to be cleared as well:
+	 */
+	pepext->trb_toggle_reset = 1;
 	USB_BUS_UNLOCK(udev->bus);
 }
 
