@@ -997,16 +997,16 @@ xhci_find_transfer(struct xhci_endpoint_ext *pepext, uint64_t td_event,
 		    mask &= ~(1U << i)) {
 			i = ffs(mask) - 1;
 
-			xfer = pepext->xfer[i +
-			    (XHCI_MAX_TRANSFERS * stream_id)];
+			xfer =
+			    pepext->xfer[i + (XHCI_MAX_TRANSFERS * stream_id)];
 			td = xfer->td_transfer_cache;
 			if (td == NULL)
 				continue;
 
-			DPRINTFN(5, "Checking if 0x%016llx == "
+			DPRINTFN(5,
+			    "Checking if 0x%016llx == "
 			    "(0x%016llx .. 0x%016llx)\n",
-			    (long long)td_event,
-			    (long long)td->td_self,
+			    (long long)td_event, (long long)td->td_self,
 			    (long long)td->td_self + sizeof(td->td_trb));
 
 			/*
@@ -3130,8 +3130,8 @@ xhci_transfer_remove(struct usb_xfer *xfer, usb_error_t error)
 		pepext->trb_used[xfer->stream_id]--;
 
 		pepext->xfer[xfer->qh_pos] = NULL;
-		pepext->xfer_mask[xfer->stream_id] &=
-		    ~(1U << (xfer->qh_pos % XHCI_MAX_TRANSFERS));
+		pepext->xfer_mask[xfer->stream_id] &= ~(
+		    1U << (xfer->qh_pos % XHCI_MAX_TRANSFERS));
 
 		if (error && pepext->trb_running != 0) {
 			pepext->trb_halted = 1;
@@ -3177,7 +3177,10 @@ xhci_transfer_insert(struct usb_xfer *xfer)
 		trb_limit = 1;
 		break;
 	default:
-		/* multi buffered */
+		/*
+		 * multi buffered, less the hardcoded LINK TRB and the
+		 * chain end marker
+		 */
 		trb_limit = (XHCI_MAX_TRANSFERS - 2);
 		break;
 	}
@@ -3357,27 +3360,32 @@ xhci_device_generic_multi_enter(struct usb_endpoint *ep,
 
 	/*
 	 * Check if the current transfer is started and then pickup
-	 * the next one, if any. Else wait for next start event due to
+	 * the next ones, if any. Else wait for next start event due to
 	 * block on failure feature.
 	 */
 	if (!xfer->flags_int.bandwidth_reclaimed)
 		return;
 
-	xfer = TAILQ_FIRST(&ep->endpoint_q[stream_id].head);
-	if (xfer == NULL) {
-		/*
-		 * In case of enter we have to consider that the
-		 * transfer is queued by the USB core after the enter
-		 * method is called.
-		 */
-		xfer = enter_xfer;
-
-		if (xfer == NULL)
+	/*
+	 * Try to multi buffer all waiting transfers, in order. Stop
+	 * at the first one which cannot be inserted, so that the
+	 * hardware never runs the transfers out of order.
+	 */
+	TAILQ_FOREACH(xfer, &ep->endpoint_q[stream_id].head, wait_entry) {
+		if (xfer->flags_int.bandwidth_reclaimed)
+			continue;
+		if (xhci_transfer_insert(xfer) != 0 ||
+		    !xfer->flags_int.bandwidth_reclaimed)
 			return;
 	}
 
-	/* try to multi buffer */
-	xhci_transfer_insert(xfer);
+	/*
+	 * In case of enter we have to consider that the
+	 * transfer is queued by the USB core after the enter
+	 * method is called.
+	 */
+	if (enter_xfer != NULL)
+		xhci_transfer_insert(enter_xfer);
 }
 
 static void
